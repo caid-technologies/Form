@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import json
 
-from forma_core.workspaces.projects.models import HardwareIR, SystemArchitecture, SystemNode
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, SystemArchitecture, SystemNode
 
 
 class ArchitectureContinuityError(ValueError):
     """An authored hierarchy has ambiguous IDs or unresolved interfaces."""
 
 
-def architecture_turn_context(message: str, project: HardwareIR | None, revision_id: str | None) -> str:
+def architecture_turn_context(message: str, project: HardwareIntermediateRepresentation | None, revision_id: str | None) -> str:
     """Attach saved topology to a delivered turn without changing stored user text."""
     architecture = project.system_architecture if project else None
     context = {
@@ -33,7 +33,7 @@ def architecture_turn_context(message: str, project: HardwareIR | None, revision
     )
 
 
-def reconcile_architecture(project: HardwareIR, previous: HardwareIR | None) -> None:
+def reconcile_architecture(project: HardwareIntermediateRepresentation, previous: HardwareIntermediateRepresentation | None) -> None:
     """Preserve omitted topology, seed legacy designs, and reject broken references.
 
     Null also means preserve: removal is expressed by submitting an updated tree.

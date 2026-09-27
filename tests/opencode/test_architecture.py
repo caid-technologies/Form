@@ -14,12 +14,12 @@ from apps.api.opencode_api import poll_opencode_command
 from apps.api.opencode_mcp import _compile, handle_opencode_mcp_json_rpc
 from forma_core.opencode.architecture import ArchitectureContinuityError, architecture_turn_context, reconcile_architecture
 from forma_core.opencode.models import ConnectorCommand, McpJsonRpcRequest, OpenCodeSessionStatus
-from forma_core.workspaces.projects.models import HardwareIR, SystemArchitecture, SystemNode, SystemInterface
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, SystemArchitecture, SystemNode, SystemInterface
 
 
-def saved_project() -> HardwareIR:
+def saved_project() -> HardwareIntermediateRepresentation:
     """Return a mechanical-only saved design with stable topology."""
-    return HardwareIR(system_architecture=SystemArchitecture(summary="Fan enclosure", root=SystemNode(
+    return HardwareIntermediateRepresentation(system_architecture=SystemArchitecture(summary="Fan enclosure", root=SystemNode(
         system_id="product", name="Fan enclosure", domain="product", purpose="Protect the fan",
         children=[SystemNode(system_id="mechanical.enclosure", name="Enclosure", domain="mechanical", purpose="Mount the fan")],
     )))
@@ -39,7 +39,7 @@ class ArchitectureContinuityTests(TestCase):
         """Full IR writes cannot accidentally erase the hierarchy."""
         previous = saved_project()
         for payload in ({}, {"system_architecture": None}):
-            project = HardwareIR.model_validate(payload)
+            project = HardwareIntermediateRepresentation.model_validate(payload)
             reconcile_architecture(project, previous)
             self.assertEqual(previous.system_architecture, project.system_architecture)
             self.assertIsNot(previous.system_architecture, project.system_architecture)
@@ -67,10 +67,10 @@ class ArchitectureContinuityTests(TestCase):
 
     def test_empty_draft_stays_empty_and_mechanical_seed_has_no_electronics(self) -> None:
         """Fallback topology does not invent hardware for a CAD-only design."""
-        empty = HardwareIR()
+        empty = HardwareIntermediateRepresentation()
         reconcile_architecture(empty, None)
         self.assertIsNone(empty.system_architecture)
-        project = HardwareIR.model_validate({"mechanical": {"enclosure_type": "open", "mounting_guidance": "Mount fan", "manufacturability_rating": "easy"}})
+        project = HardwareIntermediateRepresentation.model_validate({"mechanical": {"enclosure_type": "open", "mounting_guidance": "Mount fan", "manufacturability_rating": "easy"}})
         reconcile_architecture(project, None)
         self.assertEqual(["mechanical"], [node.domain for node in project.system_architecture.root.children])
 
@@ -104,7 +104,7 @@ class ArchitectureContinuityTests(TestCase):
              patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
              patch("apps.api.opencode_mcp.ensure_native_cad_model"), \
              patch("apps.api.opencode_mcp._persist_mcp_compile") as persist:
-            result = _compile(HardwareIR(), str(uuid4()), user)
+            result = _compile(HardwareIntermediateRepresentation(), str(uuid4()), user)
         self.assertEqual(previous.state.system_architecture, persist.call_args.args[0].system_architecture)
         self.assertEqual("product", result["project_ir"]["system_architecture"]["root"]["system_id"])
 
