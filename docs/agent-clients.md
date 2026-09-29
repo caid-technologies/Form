@@ -1,9 +1,12 @@
-# OpenClaw, NemoClaw, and OpenCode
+# Agent clients
 
 Forma supports these clients through two portable surfaces:
 
 - A shared Agent Skill at `.agents/skills/forma-hardware/SKILL.md`.
 - An MCP Streamable HTTP endpoint at `http://127.0.0.1:8000/mcp` (or `/api/mcp` when the deployment adds an `/api` prefix).
+
+For Cursor packaging, local installation, protected cloud authentication, and
+Grok Bot's CLI/MCP options, see [Install Forma for Cursor / Grok Bot](cursor-plugin.md).
 
 ## Cloud and local worker boundary
 

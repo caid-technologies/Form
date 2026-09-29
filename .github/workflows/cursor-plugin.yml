@@ -1,0 +1,27 @@
+name: Cursor plugin
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - '.cursor-plugin/**'
+      - 'mcp.json'
+      - '.agents/skills/forma-hardware/**'
+      - 'apps/web/public/brand/caid-logo.jpg'
+      - 'LICENSE'
+      - 'docs/cursor-plugin.md'
+      - 'tests/tooling/test_cursor_plugin.py'
+      - '.github/workflows/cursor-plugin.yml'
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest tests.tooling.test_cursor_plugin -v

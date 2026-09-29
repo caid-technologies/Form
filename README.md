@@ -100,6 +100,14 @@ See the [CLI and runtime reference](docs/runtime-reference.md) for generation, i
 
 </details>
 
+## Install Forma for Cursor / Grok Bot
+
+Install the [Cursor plugin](docs/cursor-plugin.md) to discover the shared
+`forma-hardware` skill and local Streamable HTTP MCP connection. The guide covers
+local installation, protected cloud authentication, CLI-only use, and compatible
+Grok Bot deployments. Marketplace publication requires a separate maintainer
+submission and review; the repository includes the packaging and checklist.
+
 ## How it works
 
 1. **Describe the project.** Start with requirements and optional reference images; refine the design through conversation.

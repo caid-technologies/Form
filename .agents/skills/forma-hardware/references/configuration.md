@@ -90,6 +90,19 @@ The project skill is discovered from the same `.agents/skills` directory. Add th
 
 Then run `opencode mcp list`. For a protected server, add `"Authorization": "Bearer {env:FORMA_AUTH_TOKEN}"` under `headers`.
 
+## Cursor / Grok Bot
+
+The Cursor plugin registers the local `forma` MCP server and this complete skill.
+For protected cloud use, disable the local server and register a reachable HTTPS
+endpoint with `Authorization: Bearer ${env:FORMA_AUTH_TOKEN}` in Cursor's MCP
+configuration. Cursor must inherit the credential environment variable when it
+starts. See the repository's [plugin installation guide](https://github.com/caid-technologies/Form-OSS/blob/main/docs/cursor-plugin.md).
+
+Use `authoring_agent: "other"` with `forma.compile_project`, or
+`--authoring-agent other` with `scripts/forma.py compile`. Grok Bot deployments
+need either a compatible plugin/skill loader or an authorized command runner;
+do not assume a proprietary API or a particular host installation command.
+
 ## Troubleshooting
 
 - Connection refused: run `./scripts/development/dev.sh` (or `.\scripts\development\dev.ps1` on Windows) from a Forma checkout, or set `FORMA_MCP_URL` to a hosted `/api/mcp` endpoint.
