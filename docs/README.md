@@ -7,6 +7,7 @@
 - [Local setup and Docker](setup.md)
 - [CLI and runtime reference](runtime-reference.md) — commands, provider settings, credentials, storage, and observability
 - [Agent integrations](agent-clients.md) — OpenCode, Claude Code, Codex, OpenClaw, and NemoClaw
+- [Install Forma for Cursor / Grok Bot](cursor-plugin.md) — plugin, local/cloud MCP, CLI-only use, and Marketplace submission
 - [OpenCode models and image generation](opencode-models-and-images.md)
 - [Examples](examples.md)
 - [Gear motion preview](gear-motion-preview.md)
