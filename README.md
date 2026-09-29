@@ -2,13 +2,13 @@
 
 **Build hardware from ideas.**
 
-Forma is an open-source AI hardware design workspace. Describe a design, add reference images, and iterate toward CAD models, wiring diagrams, bills of materials, and assembly instructions.
+Form is an open-source AI hardware design workspace. Describe a design, add reference images, and iterate toward CAD models, wiring diagrams, bills of materials, and assembly instructions.
 
 [![License: MPL 2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/caid-forma-core.svg)](https://pypi.org/project/caid-forma-core/)
 [![GitHub stars](https://img.shields.io/github/stars/caid-technologies/Forma-OSS?style=social)](https://github.com/caid-technologies/Forma-OSS)
 
-**[Try Forma](https://caid-technologies.us/)** · [Browse projects](https://caid-technologies.us/projects) · [Run locally](#quick-start) · [Documentation](docs/README.md)
+**[Try Form](https://caid-technologies.us/)** · [Browse projects](https://caid-technologies.us/projects) · [Run locally](#quick-start) · [Documentation](docs/README.md)
 
 ## See it in action
 
@@ -23,7 +23,7 @@ Mechanical design and motion previews:
 <details>
 <summary>Preview the security camera workflow</summary>
 
-[![Forma workflow creating a security camera](docs/assets/forma-security-camera-demo.gif)](https://www.youtube.com/watch?v=XaIIJT7OX4M)
+[![Form workflow creating a security camera](docs/assets/forma-security-camera-demo.gif)](https://www.youtube.com/watch?v=XaIIJT7OX4M)
 
 </details>
 
@@ -39,7 +39,7 @@ Forma is an **alpha research prototype** for makers and developers. Electrical v
 
 ## Quick start
 
-Use [Forma in your browser](https://caid-technologies.us/), or run it locally with OpenCode. Local authoring, validation, rendering, and project status do not require a Forma account.
+Use [Form in your browser](https://caid-technologies.us/), or run it locally with OpenCode. Local authoring, validation, rendering, and project status do not require a Forma account.
 
 ### Run locally with OpenCode
 
@@ -112,7 +112,7 @@ With the local agent workflow, your host agent supplies the model and Forma perf
 
 | I want to… | Start here |
 | --- | --- |
-| Install or self-host Forma | [Setup](docs/setup.md) · [CLI and runtime reference](docs/runtime-reference.md) |
+| Install or self-host Form | [Setup](docs/setup.md) · [CLI and runtime reference](docs/runtime-reference.md) |
 | Connect my own agent | [Agent integrations](docs/agent-clients.md) · [Model and image configuration](docs/opencode-models-and-images.md) |
 | Understand the project format | [Hardware Intermediate Representation](docs/hardware-ir.md) · [Architecture](docs/architecture.md) |
 | Explore examples and motion | [Examples](docs/examples.md) · [Gear motion preview](docs/gear-motion-preview.md) |
