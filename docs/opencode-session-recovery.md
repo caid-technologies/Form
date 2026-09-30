@@ -44,3 +44,43 @@ for the retry action. No connector protocol change is required.
 The SQL test creates test roles/tables and rolls back. Run it only in a disposable
 database. Browser fixtures simulate connector events; a deployed mini-PC smoke test
 remains a rollout check.
+
+## Heartbeat and lease failures
+
+The gateway returns `detail.code`, a fixed public message, and a correlation ID.
+The connector uses the code, never exception text or response bodies:
+
+| Code | Connector behavior |
+| --- | --- |
+| `opencode_capability_invalid`, `opencode_capability_expired` | Stop; do not retry rejected authorization. |
+| `opencode_scope_mismatch` | Stop; do not refresh credentials to bypass the scope check. |
+| `opencode_lease_invalid` | Stop this worker; a newer claimant may own the command. |
+| `opencode_lease_expired` | Stop; the gateway atomically fails the matching expired command and writes its canonical failure event. |
+| `opencode_command_closed`, `opencode_session_closed` | Stop; never revive terminal work. |
+| `opencode_transport_unavailable` | Connector-generated category for network/timeouts, HTTP 408/425/429, and 5xx; retry within the last confirmed lease window. |
+
+Missing credentials (`opencode_capability_required`, `opencode_lease_required`,
+`opencode_connector_auth_required`) and other 4xx responses are also terminal.
+Malformed successful responses are protocol failures, not authorization failures.
+All public messages are fixed; tokens, prompts, remote paths, response bodies,
+and raw exceptions are excluded from diagnostics.
+
+The paired `local-server-config` connector change renews its local deadline on
+successful heartbeats and uses bounded exponential backoff (250ms to 2s). Each HTTP
+request has a timeout no longer than the remaining lease or 10 seconds. It retries
+events with the same event ID and completion with the same status and lease token;
+a lost acknowledgement cannot duplicate the durable result. Already acknowledged
+events remain replayable within their authorized active session after completion;
+new events still require a valid lease. A wrong or superseded lease cannot fail a
+new claimant. Authorization failures cannot mutate the command; the existing
+five-minute session outage reconciliation remains the fallback when an authorized
+terminal write is impossible. The connector stops polling a rejected session
+instead of immediately refreshing credentials and reclaiming the same work;
+discovery still runs the gateway timeout reconciliation.
+
+Apply `supabase/migrations/20260930160740_opencode_lease_failures.sql` before this
+backend release, after the stale-session migration. Deploy the gateway before the
+paired connector update for specific failure categories. The new connector still
+stops on an older gateway's generic 403. No environment changes are required.
+Validate the additional RPC with `psql -v ON_ERROR_STOP=1 -f tests/opencode/lease_failures.sql`
+in a disposable database. Real mini-PC reconnect testing remains a rollout check.
