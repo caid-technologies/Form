@@ -12,6 +12,7 @@ from apps.api.opencode_mcp import _compile, _tool_result, handle_opencode_mcp_js
 from apps.api.auth import UserContext
 from forma_core.image_providers import GeneratedImage, GMIImageProvider, OpenAIImageProvider, build_image_provider
 from forma_core.opencode.capabilities import ConnectorCapability
+from forma_core.opencode.store import OpenCodeStore
 from forma_core.opencode.models import GenerateImageArguments, McpJsonRpcRequest
 from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
@@ -20,6 +21,10 @@ class ImageToolTests(unittest.TestCase):
     def setUp(self):
         self.project_id = str(uuid4())
         self.cap = ConnectorCapability("mini", "session", self.project_id, "owner", 2_000_000_000, "nonce", frozenset({"mcp"}))
+        store = OpenCodeStore(":memory:")
+        self.addCleanup(store.close)
+        store.create_session(session_id="session", connector_id="mini", owner_user_id="owner", project_id=self.project_id)
+        self.enterContext(patch("apps.api.opencode_api.OPENCODE_STORE", store))
         self.args = GenerateImageArguments(prompt="A concept render of the bracket", request_id="image-1")
         self.source = SimpleNamespace(revision_id="before", state=HardwareIntermediateRepresentation(assembly_metadata={"source_prompt": "Build a bracket"}))
         self.current = SimpleNamespace(revision_id="latest", state=HardwareIntermediateRepresentation(assembly_metadata={"newer_edit": "preserved", "product_visual_sequence": [{"data": "old image"}]}))
@@ -37,6 +42,13 @@ class ImageToolTests(unittest.TestCase):
             self.assertEqual("owner", user.owner_user_id)
             self.saved = SimpleNamespace(revision_id="saved", state=project)
         self.persist = self.enterContext(patch("apps.api.opencode_images._persist_mcp_compile", side_effect=persist))
+
+    def test_closed_session_prevents_saving_a_generated_image(self):
+        def closed():
+            raise PermissionError("The authoring session is no longer active.")
+        with self.assertRaises(PermissionError):
+            generate_project_image(self.args, self.cap, before_save=closed)
+        self.persist.assert_not_called()
 
     def test_image_saves_to_current_project_and_retry_does_not_regenerate(self):
         result = generate_project_image(self.args, self.cap)

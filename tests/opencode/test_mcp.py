@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from forma_core.opencode.store import OpenCodeStore
 from apps.api.opencode_api import router
 from apps.api.opencode_mcp import _revision_identifier, opencode_mcp_tools
 from forma_core.opencode.capabilities import ConnectorCapability
@@ -173,6 +174,10 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
         self.authorize = self.enterContext(patch(
             "apps.api.opencode_api._connector_capability", return_value=self.capability,
         ))
+        store = OpenCodeStore(":memory:")
+        self.addCleanup(store.close)
+        store.create_session(session_id="session", connector_id="mini", owner_user_id="user", project_id=self.capability.project_id)
+        self.enterContext(patch("apps.api.opencode_api.OPENCODE_STORE", store))
         self.client = self.enterContext(TestClient(self.app))
         self.initialize_params = {
             "protocolVersion": "2025-06-18",

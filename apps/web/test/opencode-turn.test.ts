@@ -115,3 +115,16 @@ test("commands inherit the runtime model and ignore legacy browser selections", 
     else Reflect.deleteProperty(globalThis, "window");
   }
 });
+
+test("connector timeout finishes the matching turn and exposes its safe diagnostic code", () => {
+  const waiting = reduceOpenCodeTurn(initial, event("connector_unavailable"), "command");
+  const expired = reduceOpenCodeTurn(waiting, event("failed", {
+    error: { code: "connector_timeout", message: "Forma Agent did not reconnect within five minutes. Retry this request when it is available.", correlation_id: "event_command:terminal" },
+    status: "failed",
+  }), "command");
+  assert.equal(expired.status, "error");
+  assert.match(expired.content, /Retry this request/);
+  assert.match(expired.content, /Code: connector_timeout/);
+  assert.equal(reduceOpenCodeTurn(expired, event("completed"), "command"), expired);
+  assert.equal(reduceOpenCodeTurn(expired, event("working"), "command"), expired);
+});

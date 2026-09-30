@@ -1889,6 +1889,9 @@ export function FormaWorkspace({
   const recoveryJobMissesRef = useRef(new Map<string, { misses: number; retryAfter: number }>());
   const generationRunsRef = useRef(new Map<string, ActiveGenerationRun>());
   const openCodeSessionsRef = useRef<Record<string, OpenCodeSession>>({});
+  const [openCodeRetries, setOpenCodeRetries] = useState<Record<string, {
+    message: string; assistantMessageId: string; projectId?: string | null;
+  }>>({});
   const openCodeCursorsRef = useRef<Record<string, number>>({});
   const openCodePollTimersRef = useRef<Record<string, number>>({});
   const activeChatIdRef = useRef(activeChatId);
@@ -4948,6 +4951,8 @@ export function FormaWorkspace({
     chatId: string;
     sessionId: string;
     commandId: string;
+    message: string;
+    projectId?: string | null;
     assistantMessageId: string;
     run: ActiveGenerationRun;
   }) => {
@@ -4978,7 +4983,13 @@ export function FormaWorkspace({
         const terminalEvent = state.terminalEvent;
         if (terminalEvent) {
           delete openCodePollTimersRef.current[turn.sessionId];
-          if (terminalEvent.kind === "cancelled") delete openCodeSessionsRef.current[turn.chatId];
+          const timedOut = terminalEvent.error?.code === "connector_timeout";
+          if (terminalEvent.kind === "cancelled" || timedOut) delete openCodeSessionsRef.current[turn.chatId];
+          if (timedOut) {
+            setOpenCodeRetries((current) => ({ ...current, [turn.chatId]: {
+              message: turn.message, projectId: turn.projectId, assistantMessageId: turn.assistantMessageId,
+            } }));
+          }
           let resultLoadError: string | null = null;
           let resultLoadNotice: string | null = null;
           if (terminalEvent.kind === "completed") {
@@ -5066,6 +5077,14 @@ export function FormaWorkspace({
       setGenerationInputNotice(error);
       return;
     }
+    setOpenCodeRetries((current) => {
+      const next = { ...current };
+      delete next[chatId];
+      return next;
+    });
+    const pending = { content: "Waiting for Forma Agent.", status: "loading" as const };
+    updateThreadMessage(chatId, assistantMessageId, pending);
+    if (activeChatIdRef.current === chatId) updateChatMessage(assistantMessageId, pending);
     const run = beginGenerationRun(projectId ? "project-chat" : "chat", chatId);
     run.assistantMessageId = assistantMessageId;
     try {
@@ -5091,7 +5110,7 @@ export function FormaWorkspace({
       if (activeChatIdRef.current === chatId) {
         setGenerationInputNotice("Sent to OpenCode. Live authoring status will appear here.");
       }
-      pollOpenCodeTurn({ chatId, sessionId: session.session_id, commandId: command.command_id, assistantMessageId, run });
+      pollOpenCodeTurn({ chatId, sessionId: session.session_id, commandId: command.command_id, message, projectId, assistantMessageId, run });
     } catch (error) {
       if (run.cancelled) return;
       const messageText = error instanceof Error ? error.message : "OpenCode could not accept this request.";
@@ -6375,10 +6394,11 @@ export function FormaWorkspace({
                 if (generationRunsRef.current.has(activeChatId)) stopActiveGeneration();
                 else if (pendingContextBuildMessage) stopContextBuildMessage(pendingContextBuildMessage);
               }}
-              canRetryFailedBuild={hostedChatEnabled && Boolean(retryableContextBuildMessage)}
+              canRetryFailedBuild={Boolean(openCodeRetries[activeChatId]) || (hostedChatEnabled && Boolean(retryableContextBuildMessage))}
               retryingFailedBuild={hostedChatEnabled && resettingBuildMessageId === retryableContextBuildMessage?.id}
               onRetryFailedBuild={() => {
-                if (retryableContextBuildMessage) void resetFailedContextBuild(retryableContextBuildMessage);
+                if (openCodeRetries[activeChatId]) void submitOpenCodeTurn({ chatId: activeChatId, ...openCodeRetries[activeChatId] });
+                else if (retryableContextBuildMessage) void resetFailedContextBuild(retryableContextBuildMessage);
               }}
               hasGenerationInput={hasGenerationInput}
               inputValid={generationInputValidation.isValid}
@@ -6503,10 +6523,11 @@ export function FormaWorkspace({
                  isLoading={(hostedChatEnabled || authoringMode) && (isLoading || Boolean(generationRuns[currentProjectChatId]))}
                  canStop={(hostedChatEnabled || authoringMode) && generationRuns[currentProjectChatId]?.kind === "project-chat"}
                 onStop={() => stopActiveGeneration(currentProjectChatId)}
-                canRetryFailedBuild={hostedChatEnabled && Boolean(retryableProjectBuildMessage)}
+                canRetryFailedBuild={Boolean(openCodeRetries[currentProjectChatId]) || (hostedChatEnabled && Boolean(retryableProjectBuildMessage))}
                 retryingFailedBuild={hostedChatEnabled && resettingBuildMessageId === retryableProjectBuildMessage?.id}
                 onRetryFailedBuild={() => {
-                  if (retryableProjectBuildMessage) void resetFailedContextBuild(retryableProjectBuildMessage);
+                  if (openCodeRetries[currentProjectChatId]) void submitOpenCodeTurn({ chatId: currentProjectChatId, ...openCodeRetries[currentProjectChatId] });
+                  else if (retryableProjectBuildMessage) void resetFailedContextBuild(retryableProjectBuildMessage);
                 }}
                  canChat={(hostedChatEnabled || authoringMode) && currentUserOwnsProject}
                  readOnly={chatReadOnly}

@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from apps.api.auth import UserContext, require_opencode_authoring_access
+from forma_core.opencode.store import OpenCodeStore
 from apps.api.opencode_api import router
 from forma_core.opencode.capabilities import ConnectorCapability
 from forma_core.workspaces.projects.cad_generation import CadGenerationError
@@ -19,6 +20,10 @@ class CadApiTests(unittest.TestCase):
         self.app.include_router(router, prefix="/api")
         self.user = UserContext(provider="clerk", subject="owner", owner_user_id="owner", is_authenticated=True, is_admin=False)
         self.app.dependency_overrides[require_opencode_authoring_access] = lambda: self.user
+        store = OpenCodeStore(":memory:")
+        self.addCleanup(store.close)
+        store.create_session(session_id="session", connector_id="mini", owner_user_id="owner", project_id=PROJECT_ID)
+        self.enterContext(patch("apps.api.opencode_api.OPENCODE_STORE", store))
         self.client = self.enterContext(TestClient(self.app))
 
     def test_download_requires_owner_matching_saved_artifact_and_intact_bytes(self):

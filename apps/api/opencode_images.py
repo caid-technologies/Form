@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 
 from apps.api.a2a import _persist_mcp_compile
 from apps.api.auth import UserContext
@@ -48,7 +49,8 @@ def _result(revision: object, project_id: str) -> dict[str, object]:
     }
 
 
-def generate_project_image(arguments: GenerateImageArguments, capability: ConnectorCapability) -> dict[str, object]:
+def generate_project_image(arguments: GenerateImageArguments, capability: ConnectorCapability,
+                           *, before_save: Callable[[], None] | None = None) -> dict[str, object]:
     project_id, owner = capability.project_id, capability.owner_user_id
     # Identity, credentials and model are server-owned; the agent supplies only
     # a prompt and a retry key, never an owner, URL, path or API key.
@@ -125,6 +127,8 @@ def generate_project_image(arguments: GenerateImageArguments, capability: Connec
         metadata["product_image_data"] = image_data
     project.assembly_metadata = metadata
     user = UserContext(provider="opencode-connector", subject=owner, owner_user_id=owner, is_authenticated=True, is_admin=False)
+    if before_save is not None:
+        before_save()
     _persist_mcp_compile(project, {
         "project_id": project_id,
         "authoring_agent": "opencode", "source_job_id": job_id,
