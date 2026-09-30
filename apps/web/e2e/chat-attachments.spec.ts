@@ -79,6 +79,8 @@ async function mockBackend(page: Page, baseURL: string, authoring = false) {
 }
 
 test.use({ serviceWorkers: "block" });
+// CI's real-page suite uses Next dev; allow its first route compilation.
+test.setTimeout(180_000);
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   test(`attachments persist across first message, reply, and reload at ${viewport.width}px`, async ({ page, baseURL }) => {
