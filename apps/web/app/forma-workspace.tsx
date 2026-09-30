@@ -72,6 +72,7 @@ import {
   formatBytes,
   isFinalVideoStatus,
 } from "./forma-workspace/admin-panels";
+import { ChatAttachmentButton, ChatAttachmentSelection, type ChatAttachmentControls } from "./forma-workspace/chat-attachments";
 import HomeChatView, { type GenerationMode } from "./forma-workspace/home-chat-view";
 import ChatProjectLayout, { ChatProjectSurface } from "./forma-workspace/chat-project-layout";
 import { ProjectHistoryProvider, useProjectHistory, type ProjectHistoryConfig } from "./forma-workspace/project-history";
@@ -2707,6 +2708,7 @@ export function FormaWorkspace({
     setGenerationInputNotice(null);
     setSelectedImage(null);
     setSelectedImageSource("upload");
+    setSelectedDocument(null);
     setChatRouteTransition(null);
     setProjectIR(null);
     setActiveTab("overview");
@@ -3488,6 +3490,8 @@ export function FormaWorkspace({
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    // Permit selecting the same file again on a later turn or after validation fails.
+    event.target.value = "";
     if (file) attachReferenceFile(file, "upload");
   };
 
@@ -3949,8 +3953,8 @@ export function FormaWorkspace({
   // Saved builds are observed by useChatActivity. Opening history must not
   // call executeContextBuild; execution belongs to explicit submit/retry actions.
 
-  const submitGatherContext = async (answer?: string) => {
-    if (generationRunsRef.current.has(activeChatId)) return;
+  const submitGatherContext = async (answer?: string, target?: { chatId: string; projectId: string }) => {
+    if (generationRunsRef.current.has(target?.chatId || activeChatId)) return;
     if (authoringMode) {
       if (selectedImage || selectedDocument) {
         setGenerationInputNotice("Image and PDF attachments are not available in FormaAgent authoring yet.");
@@ -3985,8 +3989,8 @@ export function FormaWorkspace({
       return;
     }
 
-    const requestChatId = activeChatId || newBuildChatId();
-    const requestProjectId = contextProjectIdsRef.current[requestChatId] || (
+    const requestChatId = target?.chatId || activeChatId || newBuildChatId();
+    const requestProjectId = target?.projectId || contextProjectIdsRef.current[requestChatId] || (
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestChatId)
         ? requestChatId
         : newBuildChatId()
@@ -4003,17 +4007,18 @@ export function FormaWorkspace({
     setActiveChatId(requestChatId);
     rememberChatItem({
       chatId: requestChatId,
-      title: text || documentData?.name || "Hardware reference",
-      projectId: "",
+      title: target ? projectTitle : text || documentData?.name || "Hardware reference",
+      projectId: target?.projectId || "",
       createdAt: chatTimestamp(),
-      projectCount: 0,
+      projectCount: target ? 1 : 0,
     });
-    syncChatRoute(requestChatId);
+    if (!target) syncChatRoute(requestChatId);
     appendChatMessage({ id: userMessageId, role: "user", content: userContent, imagePreview: imageData, status: "idle" });
     appendThreadMessage(requestChatId, { id: userMessageId, role: "user", content: userContent, imagePreview: imageData, status: "idle" });
     appendChatMessage({ id: assistantMessageId, role: "assistant", content: "Thinking…", status: "loading" });
     appendThreadMessage(requestChatId, { id: assistantMessageId, role: "assistant", content: "Thinking…", status: "loading" });
-    setPrompt("");
+    if (target) setProjectChatInput("");
+    else setPrompt("");
     setSelectedImage(null);
     setSelectedImageSource("upload");
     setSelectedDocument(null);
@@ -4631,6 +4636,14 @@ export function FormaWorkspace({
   const handleProjectChatGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
     if (generationRunsRef.current.has(currentProjectChatId || activeChatId)) return;
+    if (selectedImage || selectedDocument) {
+      if (!currentProjectId || !currentUserOwnsProject) return;
+      await submitGatherContext(projectChatInput, {
+        chatId: currentProjectChatId || activeChatId || newBuildChatId(),
+        projectId: currentProjectId,
+      });
+      return;
+    }
     if (authoringMode) {
       const handoffProjectId = currentProjectId;
       const handoffMessage = projectChatInput.trim();
@@ -5223,10 +5236,17 @@ export function FormaWorkspace({
     setActiveTab("overview");
     setRouteProjectError(null);
     if (storedMessages.length) {
-      setChatThreads((current) => ({ ...current, [chatId]: storedMessages }));
-      setChatMessages(storedMessages);
+      // The route transition can finish alongside a reply. Merge with the
+      // latest state so a saved "Thinking…" snapshot cannot replace that reply.
+      setChatThreads((current) => ({
+        ...current,
+        [chatId]: mergeFetchedChatMessages(storedMessages, current[chatId] || [], true),
+      }));
+      setChatMessages((current) => activeChatId === chatId
+        ? mergeFetchedChatMessages(storedMessages, current, true)
+        : storedMessages);
     } else {
-      setChatMessages(initialChatMessages());
+      setChatMessages((current) => activeChatId === chatId ? current : initialChatMessages());
     }
 
     if (!chatSourcesReady) {
@@ -6520,7 +6540,17 @@ export function FormaWorkspace({
                 input={projectChatInput}
                 setInput={setProjectChatInput}
                 onSubmit={handleProjectChatGenerate}
-                 isLoading={(hostedChatEnabled || authoringMode) && (isLoading || Boolean(generationRuns[currentProjectChatId]))}
+                attachmentControls={{
+                  imageInputRef: fileInputRefSidebar,
+                  onImageChange: handleImageChange,
+                  selectedImage,
+                  selectedDocumentName: selectedDocument?.name || null,
+                  onRemoveImage: removeSelectedImage,
+                  onRemoveDocument: removeSelectedDocument,
+                }}
+                onImagePaste={handleImagePaste}
+                notice={generationInputNotice}
+                 isLoading={(hostedChatEnabled || authoringMode) && (isLoading || contextSubmitting || Boolean(generationRuns[currentProjectChatId]))}
                  canStop={(hostedChatEnabled || authoringMode) && generationRuns[currentProjectChatId]?.kind === "project-chat"}
                 onStop={() => stopActiveGeneration(currentProjectChatId)}
                 canRetryFailedBuild={Boolean(openCodeRetries[currentProjectChatId]) || (hostedChatEnabled && Boolean(retryableProjectBuildMessage))}
@@ -7877,6 +7907,9 @@ function ChatWorkspace({
   input,
   setInput,
   onSubmit,
+  attachmentControls,
+  onImagePaste,
+  notice,
   isLoading,
   canStop,
   onStop,
@@ -7905,6 +7938,9 @@ function ChatWorkspace({
   input: string;
   setInput: (value: string) => void;
   onSubmit: (event: React.FormEvent) => void;
+  attachmentControls: ChatAttachmentControls;
+  onImagePaste: React.ClipboardEventHandler<HTMLTextAreaElement>;
+  notice: string | null;
   isLoading: boolean;
   canStop: boolean;
   onStop: () => void;
@@ -7924,7 +7960,7 @@ function ChatWorkspace({
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(chatId || projectId || "project-chat", messages);
   const { headerAway, updateFromContainer } = useChromeHeaderScroll(chatId || projectId || "project-chat");
   const chatAvailable = canChat && !readOnly;
-  const hasInput = Boolean(input.trim());
+  const hasInput = Boolean(input.trim() || attachmentControls.selectedImage || attachmentControls.selectedDocumentName);
   const retryMode = shouldOfferFailedBuildRetry({
     canRetryFailedBuild: canRetryFailedBuild && !readOnly,
     hasInput,
@@ -8012,9 +8048,13 @@ function ChatWorkspace({
             {chatAvailable && (
               <form onSubmit={onSubmit} className="shrink-0 border-t border-white/5 bg-[#0f1117]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4">
               <div className="mx-auto max-w-3xl">
+                {notice && <div id="project-input-notice" role="status" className="mb-3 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">{notice.replace(/\bOpenCode\b/g, "Forma Agent")}</div>}
                 <div className="w-full rounded-2xl border border-white/5 bg-[#181b22] p-3 shadow-lg transition-all focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/20">
+                  <ChatAttachmentSelection {...attachmentControls} />
                   <textarea
                     value={input}
+                    onPaste={onImagePaste}
+                    aria-describedby={notice ? "project-input-notice" : undefined}
                     onChange={(event) => setInput(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && !event.shiftKey) {
@@ -8031,7 +8071,9 @@ function ChatWorkspace({
                     placeholder={`Describe a change to ${activeNamespaceLabel.toLowerCase()}...`}
                     className="min-h-[72px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
                   />
-                  <div className="mt-1 flex items-center justify-end gap-1.5">
+                  <div className="mt-1 flex items-center justify-between gap-1.5">
+                    <ChatAttachmentButton imageInputRef={attachmentControls.imageInputRef} />
+                    <div className="flex items-center gap-1.5">
                     {!canStop && !retryMode && !isLoading && hasInput && (
                       <span className="prompt-composer-enter-hint hidden sm:inline" aria-hidden="true">
                         Enter
@@ -8061,6 +8103,7 @@ function ChatWorkspace({
                         <ArrowRight className="h-4 w-4" />
                       )}
                     </button>
+                    </div>
                   </div>
                 </div>
               </div>

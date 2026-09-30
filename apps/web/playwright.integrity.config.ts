@@ -3,7 +3,7 @@ import config from "./playwright.config";
 
 export default defineConfig({
   ...config,
-  testMatch: ["opencode-chat.spec.ts", "gear-motion.spec.ts", "version-history.spec.ts"],
+  testMatch: ["opencode-chat.spec.ts", "chat-attachments.spec.ts", "gear-motion.spec.ts", "version-history.spec.ts"],
   workers: 1,
   use: { ...config.use, baseURL: "http://127.0.0.1:3107" },
   webServer: {
