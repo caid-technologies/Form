@@ -17,6 +17,14 @@ The frontend is a **Next.js 15** app that visualizes Hardware Intermediate Repre
 
 The initial chat asks for the system's overall shape, silhouette, or form factor. Answers can describe enclosed products as well as curved, cylindrical, radial, wearable, folded, structural, and open-frame designs; Forma should not assume a rectangular case.
 
+The paperclip is available in both the initial conversation and saved-project chat
+composers, including after replies and reloads. Images and PDFs use the same preview,
+removal, clipboard, and validation handlers; PDFs retain the 2 MB limit. Project-chat
+attachments go through the existing context-ingestion endpoint with the current
+project and conversation IDs, while text-only project updates retain the iteration
+path. FormaAgent authoring still reports its existing unsupported-attachment notice
+and keeps the selected file and text available for removal or editing.
+
 To redesign an existing project's shape without changing its components, open the project, select the **MECH** tab, and describe the new form in project chat—for example, “Keep these components, but change the body to a curved handheld pod with a thumb rest.” The `product.mech` namespace allows mechanical form, dimensions, placement, material, and fabrication details to change while keeping the BOM and electrical connectivity fixed. Use the BOM or WIRE tab when the requested revision should also change components or wiring.
 
 ## Primary tabs
