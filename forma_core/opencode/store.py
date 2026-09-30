@@ -412,6 +412,7 @@ class OpenCodeStore:
         return [session for session in sessions if (_parse_timestamp(session.updated_at) or cutoff) >= cutoff]
 
     def claim_next(self, *, connector_id: str, session_id: str, lease_seconds: int = 60) -> ConnectorCommand | None:
+        """Atomically claim FIFO work only when this session has no live lease."""
         now = _now()
         now_text = _timestamp(now)
         expiry = _timestamp(now + timedelta(seconds=max(15, min(lease_seconds, 300))))
@@ -419,68 +420,45 @@ class OpenCodeStore:
         lease_hash = hashlib.sha256(lease_token.encode("utf-8")).hexdigest()
         provider = self._ensure_provider()
         if isinstance(provider, SupabaseProvider):
-            rows = (
-                provider.client.table("opencode_commands")
-                .select("*")
-                .eq("connector_id", connector_id)
-                .eq("session_id", session_id)
-                .in_("status", [
-                    OpenCodeCommandStatus.QUEUED.value,
-                    OpenCodeCommandStatus.LEASED.value,
-                    OpenCodeCommandStatus.RUNNING.value,
-                ])
-                .order("created_at")
-                .limit(50)
-                .execute()
-                .data
-                or []
-            )
-            for row in rows:
-                current_status = str(row.get("status") or "")
-                if current_status == OpenCodeCommandStatus.QUEUED.value:
-                    eligible = True
-                else:
-                    lease_expires_at = _parse_timestamp(row.get("lease_expires_at"))
-                    eligible = lease_expires_at is not None and lease_expires_at <= now
-                if not eligible:
-                    continue
-                updated = (
-                    provider.client.table("opencode_commands")
-                    .update({"status": OpenCodeCommandStatus.LEASED.value, "attempt_count": int(row.get("attempt_count") or 0) + 1,
-                             "lease_expires_at": expiry, "lease_token_hash": lease_hash, "updated_at": now_text})
-                    .eq("command_id", row["command_id"])
-                    .eq("status", current_status)
-                    .select("*")
-                    .execute()
-                    .data
-                    or []
-                )
-                if updated:
-                    updated_command = _command_from_record(updated[0])
-                    message = self._command_message(updated_command)
-                    if message is None:
-                        self.cancel_command(updated_command)
-                        continue
-                    return self._with_context(updated_command, lease_token, message)
-            return None
-        with self._connection(begin_immediate=True) as connection:
-            row = connection.execute(
-                "SELECT * FROM opencode_commands WHERE connector_id = ? AND session_id = ? AND "
-                "(status = 'queued' OR (status IN ('leased', 'running') AND lease_expires_at <= ?)) "
-                "ORDER BY created_at LIMIT 1",
-                (connector_id, session_id, now_text),
-            ).fetchone()
-            if row is None:
+            rows = provider.client.rpc("claim_opencode_command", {
+                "p_connector_id": connector_id, "p_session_id": session_id,
+                "p_lease_hash": lease_hash, "p_lease_seconds": lease_seconds, "p_now": now_text,
+            }).execute().data or []
+            if not rows:
                 return None
-            record = dict(row)
-            attempt_count = int(record["attempt_count"] or 0) + 1
-            connection.execute(
-                "UPDATE opencode_commands SET status = ?, attempt_count = ?, lease_expires_at = ?, "
-                "lease_token_hash = ?, updated_at = ? WHERE command_id = ?",
-                (OpenCodeCommandStatus.LEASED.value, attempt_count, expiry, lease_hash, now_text, record["command_id"]),
-            )
-            record.update(status=OpenCodeCommandStatus.LEASED.value, attempt_count=attempt_count,
-                          lease_expires_at=expiry, lease_token_hash=lease_hash, updated_at=now_text)
+            record = rows[0]
+        else:
+            with self._connection(begin_immediate=True) as connection:
+                session = connection.execute(
+                    "SELECT 1 FROM opencode_sessions WHERE session_id = ? AND connector_id = ? AND status = 'active'",
+                    (session_id, connector_id),
+                ).fetchone()
+                if session is None:
+                    return None
+                active = connection.execute(
+                    "SELECT 1 FROM opencode_commands WHERE connector_id = ? AND session_id = ? "
+                    "AND status IN ('leased', 'running') AND lease_expires_at > ? LIMIT 1",
+                    (connector_id, session_id, now_text),
+                ).fetchone()
+                if active is not None:
+                    return None
+                row = connection.execute(
+                    "SELECT * FROM opencode_commands WHERE connector_id = ? AND session_id = ? AND "
+                    "(status = 'queued' OR (status IN ('leased', 'running') AND lease_expires_at <= ?)) "
+                    "ORDER BY created_at, command_id LIMIT 1",
+                    (connector_id, session_id, now_text),
+                ).fetchone()
+                if row is None:
+                    return None
+                record = dict(row)
+                attempt_count = int(record["attempt_count"] or 0) + 1
+                connection.execute(
+                    "UPDATE opencode_commands SET status = ?, attempt_count = ?, lease_expires_at = ?, "
+                    "lease_token_hash = ?, updated_at = ? WHERE command_id = ?",
+                    (OpenCodeCommandStatus.LEASED.value, attempt_count, expiry, lease_hash, now_text, record["command_id"]),
+                )
+                record.update(status=OpenCodeCommandStatus.LEASED.value, attempt_count=attempt_count,
+                              lease_expires_at=expiry, lease_token_hash=lease_hash, updated_at=now_text)
         command = _command_from_record(record)
         message = self._command_message(command)
         if message is None:
