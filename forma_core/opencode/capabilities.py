@@ -15,7 +15,17 @@ from forma_core.config import config
 
 
 class CapabilityError(PermissionError):
-    """The connector capability is invalid, expired, or out of scope."""
+    """The connector capability was rejected with a stable, public category."""
+
+    code = "opencode_capability_invalid"
+
+
+class CapabilityExpiredError(CapabilityError):
+    code = "opencode_capability_expired"
+
+
+class CapabilityScopeError(CapabilityError):
+    code = "opencode_scope_mismatch"
 
 
 CONNECTOR_CAPABILITY_TTL_SECONDS = 20 * 60
@@ -95,18 +105,18 @@ def verify_capability(
     except (ValueError, KeyError, TypeError, json.JSONDecodeError, UnicodeError) as exc:
         raise CapabilityError("The connector capability is invalid.") from exc
 
-    if capability.expires_at < int(time.time()):
-        raise CapabilityError("The connector capability has expired.")
+    if capability.expires_at <= int(time.time()):
+        raise CapabilityExpiredError("The connector capability has expired.")
     if connector_id is not None and capability.connector_id != connector_id:
-        raise CapabilityError("The connector capability is outside its connector scope.")
+        raise CapabilityScopeError("The connector capability is outside its connector scope.")
     if session_id is not None and capability.session_id != session_id:
-        raise CapabilityError("The connector capability is outside its session scope.")
+        raise CapabilityScopeError("The connector capability is outside its session scope.")
     if project_id is not None and capability.project_id != project_id:
-        raise CapabilityError("The connector capability is outside its project scope.")
+        raise CapabilityScopeError("The connector capability is outside its project scope.")
     if owner_user_id is not None and capability.owner_user_id != owner_user_id:
-        raise CapabilityError("The connector capability is outside its owner scope.")
+        raise CapabilityScopeError("The connector capability is outside its owner scope.")
     if scope is not None and scope not in capability.scopes:
-        raise CapabilityError("The connector capability does not grant this operation.")
+        raise CapabilityScopeError("The connector capability does not grant this operation.")
     return capability
 
 

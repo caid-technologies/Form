@@ -41,7 +41,7 @@ from forma_core.opencode.models import (
 from forma_core.opencode.architecture import architecture_turn_context
 from forma_core.workspaces.projects.state import ProjectStateError
 from forma_core.opencode.public_events import project_public_event
-from forma_core.opencode.store import CommandConflictError, OpenCodeStore, StoredCommand, StoredSession, SessionClosedError
+from forma_core.opencode.store import CommandConflictError, OpenCodeStore, StoredCommand, StoredSession, SessionClosedError, LeaseError
 from forma_core.database import get_project_identity, get_latest_project_revision
 from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 
@@ -274,7 +274,8 @@ def heartbeat_opencode_command(
     try:
         updated = OPENCODE_STORE.heartbeat(command, request.lease_token)
     except PermissionError as exc:
-        raise _http_error(403, "opencode_lease_invalid", "The command lease is invalid or expired.") from exc
+        raise _http_error(403, exc.code if isinstance(exc, LeaseError) else "opencode_lease_invalid",
+                          "The command lease is no longer valid.") from exc
     return ConnectorLeaseResponse(
         command_id=updated.command_id,
         status=updated.status,
@@ -294,12 +295,18 @@ def ingest_opencode_event(
     command = _connector_command(command_id, resolved_capability, "events")
     if not lease_token:
         raise _http_error(401, "opencode_lease_required", "The command lease is required for event delivery.")
+    if event.project_id is not None and str(event.project_id) != command.project_id:
+        raise _http_error(403, "opencode_scope_mismatch", "The event is outside the command project scope.")
+    # A lost acknowledgement may be replayed after completion revoked the lease.
+    # Return the durable original, never the new payload, within the verified scope.
+    existing = OPENCODE_STORE.get_event(command.session_id, event.event_id)
+    if existing is not None:
+        return existing
     try:
         OPENCODE_STORE.validate_lease(command, lease_token)
     except PermissionError as exc:
-        raise _http_error(403, "opencode_lease_invalid", "The command lease is invalid or expired.") from exc
-    if event.project_id is not None and str(event.project_id) != command.project_id:
-        raise _http_error(403, "opencode_scope_mismatch", "The event is outside the command project scope.")
+        raise _http_error(403, exc.code if isinstance(exc, LeaseError) else "opencode_lease_invalid",
+                          "The command lease is no longer valid.") from exc
     session = _scoped_connector_session(verify_capability(resolved_capability or "", session_id=command.session_id, project_id=command.project_id, owner_user_id=command.owner_user_id, scope="events"))
     return _store_event(session, event)
 
@@ -315,7 +322,8 @@ def complete_opencode_command(
     try:
         updated = OPENCODE_STORE.complete(command, request.lease_token, request.status)
     except PermissionError as exc:
-        raise _http_error(403, "opencode_lease_invalid", "The command lease is invalid or expired.") from exc
+        raise _http_error(403, exc.code if isinstance(exc, LeaseError) else "opencode_lease_invalid",
+                          "The command lease is no longer valid.") from exc
     terminal_kind = {
         OpenCodeCommandStatus.SUCCEEDED: OpenCodeEventKind.COMPLETED.value,
         OpenCodeCommandStatus.FAILED: OpenCodeEventKind.FAILED.value,
@@ -419,7 +427,7 @@ def _connector_capability(token: str | None, *, session_id: str | None = None, s
     try:
         return verify_capability(token, session_id=session_id, scope=scope)
     except CapabilityError as exc:
-        raise _http_error(403, "opencode_capability_invalid", "The connector capability is invalid or out of scope.") from exc
+        raise _http_error(403, exc.code, "The connector capability was rejected.") from exc
 
 
 def _bearer(value: str | None) -> str | None:

@@ -30,6 +30,14 @@ from forma_core.opencode.public_events import project_public_event
 from forma_core.user_integrations import decrypt_user_secret_text, encrypt_user_secret_text
 
 
+class LeaseError(PermissionError):
+    """A lease rejection safe to classify without exposing its token."""
+
+    def __init__(self, code: str):
+        super().__init__("The command lease is no longer valid.")
+        self.code = code
+
+
 class SessionClosedError(ValueError):
     """The session cannot accept more authoring work."""
 
@@ -595,22 +603,20 @@ class OpenCodeStore:
         return tuple(messages)
 
     def heartbeat(self, command: StoredCommand, lease_token: str) -> StoredCommand:
-        self._require_lease(command, lease_token)
+        command = self._require_lease(command, lease_token)
         now = _timestamp()
         current_expiry = _parse_timestamp(command.lease_expires_at) or _now()
         expiry = _timestamp(max(_now() + timedelta(seconds=60), current_expiry + timedelta(seconds=1)))
         provider = self._ensure_provider()
         if isinstance(provider, SupabaseProvider):
-            provider.client.table("opencode_commands").update({"status": OpenCodeCommandStatus.RUNNING.value, "lease_expires_at": expiry, "updated_at": now}).eq("command_id", command.command_id).eq("lease_token_hash", command.lease_token_hash).execute()
+            provider.client.table("opencode_commands").update({"status": OpenCodeCommandStatus.RUNNING.value, "lease_expires_at": expiry, "updated_at": now}).eq("command_id", command.command_id).eq("lease_token_hash", command.lease_token_hash).in_("status", ["leased", "running"]).gt("lease_expires_at", now).execute()
             provider.client.table("opencode_sessions").update({"last_heartbeat_at": now, "updated_at": now}).eq("session_id", command.session_id).execute()
         else:
             with self._connection() as connection:
-                connection.execute("UPDATE opencode_commands SET status = ?, lease_expires_at = ?, updated_at = ? WHERE command_id = ? AND lease_token_hash = ?", (OpenCodeCommandStatus.RUNNING.value, expiry, now, command.command_id, command.lease_token_hash))
+                connection.execute("UPDATE opencode_commands SET status = ?, lease_expires_at = ?, updated_at = ? WHERE command_id = ? AND lease_token_hash = ? AND status IN ('leased', 'running') AND lease_expires_at > ?", (OpenCodeCommandStatus.RUNNING.value, expiry, now, command.command_id, command.lease_token_hash, now))
                 connection.execute("UPDATE opencode_sessions SET last_heartbeat_at = ?, updated_at = ? WHERE session_id = ?", (now, now, command.session_id))
         result = self.get_command(command.command_id) or command
-        if result.status != OpenCodeCommandStatus.RUNNING:
-            raise PermissionError("The command is no longer active.")
-        return result
+        return self._require_lease(result, lease_token)
 
     def complete(self, command: StoredCommand, lease_token: str, status: OpenCodeCommandStatus) -> StoredCommand:
         if status not in {OpenCodeCommandStatus.SUCCEEDED, OpenCodeCommandStatus.FAILED, OpenCodeCommandStatus.CANCELLED}:
@@ -618,19 +624,19 @@ class OpenCodeStore:
         if command.status in {OpenCodeCommandStatus.SUCCEEDED, OpenCodeCommandStatus.FAILED, OpenCodeCommandStatus.CANCELLED}:
             if command.status == status:
                 return command
-            raise PermissionError("The command has already reached another terminal status.")
-        self._require_lease(command, lease_token)
+            raise LeaseError("opencode_command_closed")
+        command = self._require_lease(command, lease_token)
         now = _timestamp()
         values = {"status": status.value, "completed_at": now, "updated_at": now, "lease_token_hash": None, "lease_expires_at": None}
         provider = self._ensure_provider()
         if isinstance(provider, SupabaseProvider):
-            provider.client.table("opencode_commands").update(values).eq("command_id", command.command_id).eq("lease_token_hash", command.lease_token_hash).execute()
+            provider.client.table("opencode_commands").update(values).eq("command_id", command.command_id).eq("lease_token_hash", command.lease_token_hash).in_("status", ["leased", "running"]).gt("lease_expires_at", now).execute()
         else:
             with self._connection() as connection:
-                connection.execute("UPDATE opencode_commands SET status = ?, completed_at = ?, updated_at = ?, lease_token_hash = NULL, lease_expires_at = NULL WHERE command_id = ? AND lease_token_hash = ?", (status.value, now, now, command.command_id, command.lease_token_hash))
+                connection.execute("UPDATE opencode_commands SET status = ?, completed_at = ?, updated_at = ?, lease_token_hash = NULL, lease_expires_at = NULL WHERE command_id = ? AND lease_token_hash = ? AND status IN ('leased', 'running') AND lease_expires_at > ?", (status.value, now, now, command.command_id, command.lease_token_hash, now))
         result = self.get_command(command.command_id) or command
         if result.status != status:
-            raise PermissionError("The command has already reached another terminal status.")
+            raise LeaseError("opencode_command_closed")
         return result
 
     def validate_lease(self, command: StoredCommand, lease_token: str) -> None:
@@ -711,6 +717,16 @@ class OpenCodeStore:
             raise ValueError("OpenCode session not found.")
         return session.next_event_sequence
 
+    def get_event(self, session_id: str, event_id: str) -> PublicEvent | None:
+        """Return an acknowledged event only within its authorized session."""
+        provider = self._ensure_provider()
+        if isinstance(provider, SupabaseProvider):
+            rows = provider.client.table("opencode_events").select("event_json").eq("session_id", session_id).eq("event_id", event_id).limit(1).execute().data or []
+            return PublicEvent.model_validate(rows[0]["event_json"]) if rows else None
+        with closing(provider.connect_dbapi()) as connection:
+            row = connection.execute("SELECT event_json FROM opencode_events WHERE session_id = ? AND event_id = ?", (session_id, event_id)).fetchone()
+        return PublicEvent.model_validate(json.loads(row["event_json"])) if row else None
+
     def list_events(self, session_id: str, after: int, limit: int) -> list[PublicEvent]:
         provider = self._ensure_provider()
         if isinstance(provider, SupabaseProvider):
@@ -720,17 +736,49 @@ class OpenCodeStore:
             rows = connection.execute("SELECT event_json FROM opencode_events WHERE session_id = ? AND sequence > ? ORDER BY sequence LIMIT ?", (session_id, after, limit)).fetchall()
         return [PublicEvent.model_validate(json.loads(row["event_json"])) for row in rows]
 
-    def _require_lease(self, command: StoredCommand, lease_token: str) -> None:
+    def _require_lease(self, command: StoredCommand, lease_token: str) -> StoredCommand:
         current = self.get_command(command.command_id)
         if current is None or current.status not in {OpenCodeCommandStatus.LEASED, OpenCodeCommandStatus.RUNNING}:
-            raise PermissionError("The command is no longer active.")
+            raise LeaseError("opencode_command_closed")
         command = current
         digest = hashlib.sha256(lease_token.encode("utf-8")).hexdigest()
         if not command.lease_token_hash or not secrets.compare_digest(digest, command.lease_token_hash):
-            raise PermissionError("The command lease is invalid or has expired.")
+            raise LeaseError("opencode_lease_invalid")
         expiry = _parse_timestamp(command.lease_expires_at)
         if expiry is None or expiry <= _now():
-            raise PermissionError("The command lease is invalid or has expired.")
+            self.fail_expired_lease(command, digest)
+            raise LeaseError("opencode_lease_expired")
+        return command
+
+    def fail_expired_lease(self, command: StoredCommand, lease_digest: str) -> None:
+        """Settle only the matching expired lease, preserving any newer claimant."""
+        provider = self._ensure_provider()
+        now = _now()
+        if isinstance(provider, SupabaseProvider):
+            provider.client.rpc("fail_expired_opencode_lease", {
+                "p_command_id": command.command_id, "p_lease_hash": lease_digest, "p_now": _timestamp(now),
+            }).execute()
+            return
+        with self._connection(begin_immediate=True) as connection:
+            row = connection.execute("SELECT * FROM opencode_commands WHERE command_id = ?", (command.command_id,)).fetchone()
+            if row is None or row["status"] not in {"leased", "running"} or row["lease_token_hash"] != lease_digest:
+                return
+            expiry = _parse_timestamp(row["lease_expires_at"])
+            if expiry is not None and expiry > now:
+                return
+            session = connection.execute("SELECT * FROM opencode_sessions WHERE session_id = ?", (row["session_id"],)).fetchone()
+            sequence = session["next_event_sequence"]
+            event = project_public_event(
+                ConnectorEventInput(event_id=f"{command.command_id}:terminal", kind="failed", status="failed", error_code="opencode_lease_expired"),
+                sequence=sequence, session_id=row["session_id"], project_id=UUID(row["project_id"]), created_at=now,
+            )
+            connection.execute("UPDATE opencode_commands SET status = 'failed', completed_at = ?, updated_at = ?, lease_token_hash = NULL, lease_expires_at = NULL WHERE command_id = ?",
+                               (_timestamp(now), _timestamp(now), command.command_id))
+            # An already-delivered canonical outcome must not be replaced.
+            cursor = connection.execute("INSERT OR IGNORE INTO opencode_events (event_id, session_id, owner_user_id, project_id, sequence, event_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                        (event.event_id, row["session_id"], row["owner_user_id"], row["project_id"], sequence, event.model_dump_json(), _timestamp(now)))
+            if cursor.rowcount:
+                connection.execute("UPDATE opencode_sessions SET next_event_sequence = ? WHERE session_id = ?", (sequence + 1, row["session_id"]))
 
     def _command_message(self, command: StoredCommand) -> str | None:
         if command.message_ciphertext is None or command.message_key_id is None:
