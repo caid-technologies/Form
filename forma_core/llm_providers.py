@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 from forma_core.config import config
+from forma_core.config.parti import resolve_parti_model
 from forma_core.vertex_auth import build_vertex_credentials
 import socket
 import time
@@ -100,6 +101,9 @@ def model_image_input_support(provider_name: str, model_name: str) -> Optional[b
     provider = normalize_llm_provider_name(provider_name) or provider_name.strip().lower()
     model = _normalize_model_name(model_name).lower()
 
+    parti_model = resolve_parti_model(provider, _normalize_model_name(model_name))
+    if parti_model is not None:
+        return parti_model.supports_images
     if provider in {"gemini", "vertex", "anthropic"}:
         return True
     if provider == "cloudflare" and model == DEFAULT_CLOUDFLARE_MODEL:
@@ -628,7 +632,7 @@ def _default_model_for_provider(provider_name: str, *, include_runtime_override:
     if provider_name == "openai-compatible":
         return _first_env([*runtime_model, "OPENAI_MODEL"], DEFAULT_OPENAI_MODEL, settings=settings) or DEFAULT_OPENAI_MODEL
     if provider_name == "runpod":
-        return _first_env(["RUNPOD_OPENAI_MODEL", *runtime_model, "RUNPOD_MODEL"], "runpod-default", settings=settings) or "runpod-default"
+        return _first_env(["RUNPOD_OPENAI_MODEL", *runtime_model, "RUNPOD_MODEL", "RUNPOD_PARTI_MODEL"], "runpod-default", settings=settings) or "runpod-default"
     if provider_name == "runpod-serverless":
         return (
             _first_env(["RUNPOD_SERVERLESS_MODEL", "RUNPOD_MODEL", "RUNPOD_OPENAI_MODEL", *runtime_model], "runpod-serverless", settings=settings)
@@ -1790,7 +1794,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         elif self.provider_name == "runpod":
             api_key_names = ["RUNPOD_API_KEY", "LLM_API_KEY"]
             base_url_names = ["RUNPOD_OPENAI_BASE_URL", "RUNPOD_BASE_URL", "LLM_BASE_URL"]
-            model_names = ["RUNPOD_OPENAI_MODEL", "LLM_MODEL", "RUNPOD_MODEL"]
+            model_names = ["RUNPOD_OPENAI_MODEL", "LLM_MODEL", "RUNPOD_MODEL", "RUNPOD_PARTI_MODEL"]
             fallback_model_names = ["RUNPOD_OPENAI_FALLBACK_MODEL", "RUNPOD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"]
             strict_names = ["STRICT_RUNPOD", "STRICT_LLM"]
             validate_model_names = ["RUNPOD_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"]
