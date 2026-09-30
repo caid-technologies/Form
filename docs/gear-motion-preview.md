@@ -27,7 +27,7 @@ own project creates its downloadable STEP/STL/3MF/OBJ artifacts.
 - Forma displays already evaluated world poses in native Z-up coordinates.
   The R3F viewer consumes the existing pose contract directly; no viewport
   package release or client-side gear solver is required for this example.
-- Both meshes and motion data survive ordinary HardwareIR JSON persistence.
+- Both meshes and motion data survive ordinary HardwareIntermediateRepresentation JSON persistence.
 
 Regenerate the example with:
 

@@ -48,7 +48,7 @@ class PartDefinition(BaseModel):
     unit_price: float = Field(0.0, ge=0.0, description="Selected estimated unit price in USD")
 
 # ==========================================
-# 2. Project-Level Hardware IR (Shared State)
+# 2. Project-Level Hardware Intermediate Representation (Shared State)
 # ==========================================
 
 class ProjectOverview(BaseModel):
@@ -80,7 +80,7 @@ class ComponentInstance(BaseModel):
     configuration: Dict[str, Any] = Field(default_factory=dict, description="Instance-specific configuration only")
 
     # Transitional runtime fields. They are deliberately excluded from serialized
-    # Hardware IR; HardwareIR hydrates them from the referenced PartDefinition.
+    # Hardware Intermediate Representation; HardwareIntermediateRepresentation hydrates them from the referenced PartDefinition.
     part_number: str = Field("", exclude=True, repr=False)
     name: str = Field("", exclude=True, repr=False)
     category: str = Field("", exclude=True, repr=False)
@@ -529,7 +529,7 @@ def component_detail_payload(component: ComponentInstance) -> Dict[str, Any]:
         "pins": [pin.model_dump(mode="json") for pin in component.pins],
     }
 
-class HardwareIR(BaseModel):
+class HardwareIntermediateRepresentation(BaseModel):
     """The master typed document capturing the entire generated hardware design."""
     hardware_ir_version: str = Field("0.2", description="Structured schema version")
     overview: Optional[ProjectOverview] = Field(None, description="Project overview metadata")
@@ -586,7 +586,7 @@ class HardwareIR(BaseModel):
         return payload
 
     @model_validator(mode="after")
-    def validate_component_model(self) -> "HardwareIR":
+    def validate_component_model(self) -> "HardwareIntermediateRepresentation":
         definitions = {item.part_definition_id: item for item in self.part_definitions}
         component_refs: Dict[str, ComponentInstance] = {}
         expected_bom_refs: Dict[str, List[str]] = {}
@@ -681,7 +681,7 @@ class Project(BaseModel):
     chat_id: str | None = None
     title: str
     prompt: str
-    hardware_ir: HardwareIR | Dict[str, Any]
+    hardware_ir: HardwareIntermediateRepresentation | Dict[str, Any]
     created_at: str
     updated_at: str | None = None
     creation_channel: str = "hosted"
@@ -750,7 +750,7 @@ class ProjectIdentityResponse(BaseModel):
 class ProjectDetail(ProjectSummary):
     """Extended project contract used by authenticated detail views."""
 
-    project_ir: dict[str, Any] | HardwareIR | None = None
+    project_ir: dict[str, Any] | HardwareIntermediateRepresentation | None = None
     project_object: dict[str, Any] | None = None
     mermaid_code: str | None = None
     svg_schematic: str | None = None
@@ -954,7 +954,7 @@ class IterateProjectRequest(BaseModel):
         None,
         description="Optional runtime model override for the iteration.",
     )
-    save: bool = Field(True, description="When true, persist the revised HardwareIR over the existing project record.")
+    save: bool = Field(True, description="When true, persist the revised HardwareIntermediateRepresentation over the existing project record.")
     idempotency_key: Optional[str] = Field(
         None,
         description="Optional stable key used to replay a saved iteration without creating another revision.",
@@ -998,7 +998,7 @@ class VideoSelfCorrectRequest(BaseModel):
         None,
         description="Optional Fireworks review model override. Defaults to kimi-k2p6 frame review unless native video deployment routing is configured.",
     )
-    save: bool = Field(True, description="When true, persist the revised HardwareIR over the existing project record.")
+    save: bool = Field(True, description="When true, persist the revised HardwareIntermediateRepresentation over the existing project record.")
     idempotency_key: Optional[str] = Field(
         None,
         description="Optional stable key used to replay a saved correction without creating another revision.",

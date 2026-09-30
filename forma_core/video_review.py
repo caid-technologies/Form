@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from forma_core.workspaces.projects.iteration import compact_hardware_ir_for_iteration, coerce_hardware_ir
 from forma_core.llm import LLMProviderConfigError, LLMProviderOutputError
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.objects import normalize_project_namespace
 
 
@@ -103,7 +103,7 @@ class VideoReviewClient(Protocol):
 
     def review_video(
         self,
-        current_ir: HardwareIR,
+        current_ir: HardwareIntermediateRepresentation,
         *,
         video_url: str,
         original_prompt: Optional[str] = None,
@@ -384,11 +384,11 @@ def _review_from_unstructured_text(text: str, *, model: str) -> Optional[VideoIt
                 frame_reference="sampled video review",
                 description="The video review identified coherence or continuity findings in unstructured text.",
                 evidence=preview,
-                suggested_correction="Revise the targeted project namespace so the generated video and HardwareIR describe the same physical build.",
+                suggested_correction="Revise the targeted project namespace so the generated video and HardwareIntermediateRepresentation describe the same physical build.",
             )
         ],
         iteration_instruction=(
-            "Apply the Fireworks video review findings to make the HardwareIR and generated video coherent. "
+            "Apply the Fireworks video review findings to make the HardwareIntermediateRepresentation and generated video coherent. "
             f"Target {namespace}. Findings: {preview}"
         ),
     )
@@ -640,14 +640,14 @@ def _image_data_url(image_bytes: bytes) -> str:
 def _video_review_system_prompt() -> str:
     return (
         "You are Forma's video self-correction reviewer. You inspect generated hardware video evidence "
-        "against the current HardwareIR. Find visual coherence, physical logic, assembly continuity, camera continuity, "
+        "against the current HardwareIntermediateRepresentation. Find visual coherence, physical logic, assembly continuity, camera continuity, "
         "component placement, wiring, enclosure, and documentation issues. Return one valid JSON object only. "
         "Do not include prose, markdown, or hidden reasoning."
     )
 
 
 def _video_review_user_content(
-    current_ir: HardwareIR,
+    current_ir: HardwareIntermediateRepresentation,
     *,
     video_url: str,
     frames: List[bytes],
@@ -671,10 +671,10 @@ def _video_review_user_content(
                     "suggested_correction": "project change",
                 }
             ],
-            "iteration_instruction": "single concise instruction for Forma's project iterator to revise the HardwareIR",
+            "iteration_instruction": "single concise instruction for Forma's project iterator to revise the HardwareIntermediateRepresentation",
         },
         "review_rules": [
-            "Do not invent invisible parts. Ground findings in the frames and HardwareIR.",
+            "Do not invent invisible parts. Ground findings in the frames and HardwareIntermediateRepresentation.",
             "Prefer the smallest coherent project iteration.",
             "If the video is mostly correct, write an iteration that records the review and fixes minor documentation/continuity issues.",
             "Mention video continuity evidence in the iteration_instruction.",
@@ -687,7 +687,7 @@ def _video_review_user_content(
                 f"Project id: {project_id or (current_ir.assembly_metadata or {}).get('project_id') or 'unknown'}\n"
                 f"Original prompt: {original_prompt or 'unknown'}\n"
                 f"Video URL: {video_url}\n"
-                f"Current HardwareIR JSON:\n{json.dumps(compact_ir, indent=2, sort_keys=True)}\n\n"
+                f"Current HardwareIntermediateRepresentation JSON:\n{json.dumps(compact_ir, indent=2, sort_keys=True)}\n\n"
                 f"Instructions:\n{json.dumps(instructions, indent=2, sort_keys=True)}"
             ),
         }
@@ -715,10 +715,10 @@ def _video_review_instructions() -> Dict[str, Any]:
                     "suggested_correction": "project change",
                 }
             ],
-            "iteration_instruction": "single concise instruction for Forma's project iterator to revise the HardwareIR",
+            "iteration_instruction": "single concise instruction for Forma's project iterator to revise the HardwareIntermediateRepresentation",
         },
         "review_rules": [
-            "Do not invent invisible parts. Ground findings in the video/audio and HardwareIR.",
+            "Do not invent invisible parts. Ground findings in the video/audio and HardwareIntermediateRepresentation.",
             "Prefer the smallest coherent project iteration.",
             "If the video is mostly correct, write an iteration that records the review and fixes minor documentation/continuity issues.",
             "Mention video continuity evidence in the iteration_instruction.",
@@ -727,7 +727,7 @@ def _video_review_instructions() -> Dict[str, Any]:
 
 
 def _video_review_text_prompt(
-    current_ir: HardwareIR,
+    current_ir: HardwareIntermediateRepresentation,
     *,
     video_url: str,
     original_prompt: Optional[str],
@@ -738,13 +738,13 @@ def _video_review_text_prompt(
         f"Project id: {project_id or (current_ir.assembly_metadata or {}).get('project_id') or 'unknown'}\n"
         f"Original prompt: {original_prompt or 'unknown'}\n"
         f"Video URL: {video_url}\n"
-        f"Current HardwareIR JSON:\n{json.dumps(compact_ir, indent=2, sort_keys=True)}\n\n"
+        f"Current HardwareIntermediateRepresentation JSON:\n{json.dumps(compact_ir, indent=2, sort_keys=True)}\n\n"
         f"Instructions:\n{json.dumps(_video_review_instructions(), indent=2, sort_keys=True)}"
     )
 
 
 def _video_review_native_user_content(
-    current_ir: HardwareIR,
+    current_ir: HardwareIntermediateRepresentation,
     *,
     video_url: str,
     prepared_video: FireworksPreparedVideo,
@@ -858,7 +858,7 @@ class FireworksVideoReviewClient:
 
     def review_video(
         self,
-        current_ir: HardwareIR,
+        current_ir: HardwareIntermediateRepresentation,
         *,
         video_url: str,
         original_prompt: Optional[str] = None,

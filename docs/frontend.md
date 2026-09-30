@@ -1,6 +1,6 @@
 # Frontend
 
-The frontend is a **Next.js 15** app that visualizes Hardware IR and provides the interactive CAD-style experience.
+The frontend is a **Next.js 15** app that visualizes Hardware Intermediate Representation and provides the interactive CAD-style experience.
 
 ## Core UI features
 - **Prompt input** with optional image upload.
@@ -10,7 +10,7 @@ The frontend is a **Next.js 15** app that visualizes Hardware IR and provides th
 - **Vector schematic** rendered from SVG output.
 - **BOM & sourcing** table.
 - **Assembly instructions** and **mechanical notes** views.
-- **Export** of the Hardware IR package as JSON and build instructions as Markdown.
+- **Export** of the Hardware Intermediate Representation package as JSON and build instructions as Markdown.
 - **3D mechanical scene** for enclosure and component placements.
 
 ## Shape and form-factor iteration

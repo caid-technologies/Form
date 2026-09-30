@@ -1,6 +1,6 @@
 # Forma Project Object Examples
 
-These examples create real `FormaProjectObject` instances from generated `HardwareIR`.
+These examples create real `FormaProjectObject` instances from generated `HardwareIntermediateRepresentation`.
 The hardcoded scripts run Ollama, Runpod, and Baseten GLM by default. Hugging Face Qwen is wired in and can be enabled after setting a token.
 
 Hardcoded sync example:

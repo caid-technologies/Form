@@ -1,9 +1,9 @@
 """Typed lifecycle state for progressively expensive project representations.
 
-The canonical system topology remains ``HardwareIR.system_architecture``.  This
+The canonical system topology remains ``HardwareIntermediateRepresentation.system_architecture``.  This
 module tracks the derived representations (visuals, geometry, CAD, exports),
 their source fingerprints, and the visual approval gate.  The serialized state
-is currently embedded in ``HardwareIR.assembly_metadata`` so existing 0.2 IR
+is currently embedded in ``HardwareIntermediateRepresentation.assembly_metadata`` so existing 0.2 IR
 consumers remain compatible while the lifecycle itself stays strongly typed at
 all mutation boundaries.
 """
@@ -18,7 +18,7 @@ from typing import Any, Iterable, Iterator, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from forma_core.workspaces.projects.models import HardwareIR, SystemArchitecture, SystemNode
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, SystemArchitecture, SystemNode
 
 
 DESIGN_LIFECYCLE_METADATA_KEY = "design_lifecycle"
@@ -370,8 +370,8 @@ def stable_artifact_id(node_id: str, kind: RepresentationKind | str) -> str:
     return f"design:{node}:{kind_value}"
 
 
-def load_design_lifecycle(project: HardwareIR) -> DesignLifecycleState:
-    """Read typed lifecycle state from a HardwareIR, tolerating legacy projects."""
+def load_design_lifecycle(project: HardwareIntermediateRepresentation) -> DesignLifecycleState:
+    """Read typed lifecycle state from a HardwareIntermediateRepresentation, tolerating legacy projects."""
 
     raw = (project.assembly_metadata or {}).get(DESIGN_LIFECYCLE_METADATA_KEY)
     if isinstance(raw, Mapping):
@@ -379,7 +379,7 @@ def load_design_lifecycle(project: HardwareIR) -> DesignLifecycleState:
     return DesignLifecycleState()
 
 
-def save_design_lifecycle(project: HardwareIR, state: DesignLifecycleState) -> None:
+def save_design_lifecycle(project: HardwareIntermediateRepresentation, state: DesignLifecycleState) -> None:
     """Persist typed lifecycle state without discarding unrelated assembly metadata."""
 
     project.assembly_metadata = {
@@ -389,7 +389,7 @@ def save_design_lifecycle(project: HardwareIR, state: DesignLifecycleState) -> N
 
 
 def bootstrap_design_lifecycle(
-    project: HardwareIR,
+    project: HardwareIntermediateRepresentation,
     *,
     policy: VisualApprovalPolicy | str | None = None,
 ) -> DesignLifecycleState:
@@ -482,7 +482,7 @@ def invalidate_representations(
 
 
 def register_system_visual(
-    project: HardwareIR,
+    project: HardwareIntermediateRepresentation,
     *,
     node_id: str,
     source_fingerprint: str,
@@ -511,7 +511,7 @@ def register_system_visual(
 
 
 def register_system_render(
-    project: HardwareIR,
+    project: HardwareIntermediateRepresentation,
     *,
     source_fingerprint: str,
     uri: Optional[str],
@@ -549,7 +549,7 @@ def register_system_render(
 
 
 def record_visual_decision(
-    project: HardwareIR,
+    project: HardwareIntermediateRepresentation,
     *,
     approved: bool,
     feedback: Optional[str] = None,
@@ -573,7 +573,7 @@ def record_visual_decision(
     return state
 
 
-def cad_may_execute(project: HardwareIR) -> bool:
+def cad_may_execute(project: HardwareIntermediateRepresentation) -> bool:
     """Return whether current policy/gate state permits expensive CAD work."""
 
     state = load_design_lifecycle(project)
@@ -589,7 +589,7 @@ def cad_may_execute(project: HardwareIR) -> bool:
 
 
 def register_cad_representation(
-    project: HardwareIR,
+    project: HardwareIntermediateRepresentation,
     *,
     node_id: str,
     kind: RepresentationKind,

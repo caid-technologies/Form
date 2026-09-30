@@ -31,7 +31,7 @@ const WINDOWS_INSTALL_COMMAND =
 const UNIX_OPEN_COMMAND = "cd ~/forma-workspace\nopencode mcp list\nopencode";
 const WINDOWS_OPEN_COMMAND = 'Set-Location "$HOME\\forma-workspace"\nopencode mcp list\nopencode';
 const EXAMPLE_PROMPT =
-  "Use the Forma hardware skill to build a real 3.3V plant-watering monitor with an ESP32, capacitive soil sensor, OLED status display, and a low-voltage pump driver. Ask only essential clarification questions. Author a complete Hardware IR, call the local Forma compiler, fix every CRITICAL validation finding, and save the final compiled project manifest in the local Forma workspace. Do not use simulation.";
+  "Use the Forma hardware skill to build a real 3.3V plant-watering monitor with an ESP32, capacitive soil sensor, OLED status display, and a low-voltage pump driver. Ask only essential clarification questions. Author a complete Hardware Intermediate Representation, call the local Forma compiler, fix every CRITICAL validation finding, and save the final compiled project manifest in the local Forma workspace. Do not use simulation.";
 const UNIX_UPLOAD_COMMAND =
   "forma-oss login\nforma-oss projects push --path ~/forma-workspace/<project-id>";
 const WINDOWS_UPLOAD_COMMAND =
@@ -118,7 +118,7 @@ export default function OpenCodeInstallPage() {
               <div className="mt-6 space-y-3 font-mono text-xs">
                 <div className="rounded-lg border border-[#39404b] bg-[#0c0f14] p-3 text-slate-400">OpenCode model</div>
                 <div className="flex justify-center text-cyan-300" aria-hidden="true">v</div>
-                <div className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-3 text-cyan-100">Hardware IR + local MCP</div>
+                <div className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-3 text-cyan-100">Hardware Intermediate Representation + local MCP</div>
                 <div className="flex justify-center text-cyan-300" aria-hidden="true">v</div>
                 <div className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-3 text-emerald-100">Forma validation + SQLite</div>
                 <div className="flex justify-center text-emerald-300" aria-hidden="true">v</div>

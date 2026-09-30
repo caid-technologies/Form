@@ -273,29 +273,26 @@ export default function HomeChatView({
           >
             <input ref={imageInputRef} type="file" accept="image/*,application/pdf,.pdf" onChange={onImageChange} className="hidden" />
             {selectedImage && (
-              <div className="mb-2 flex items-start gap-2 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-1.5 pr-2">
-                <Image
-                  src={selectedImage}
-                  alt="Attached prompt image"
-                  width={64}
-                  height={64}
-                  unoptimized
-                  className="h-16 w-16 shrink-0 rounded-lg object-cover"
-                />
-                <div className="min-w-0 flex-1 py-0.5">
-                  <div className="text-xs font-medium text-[var(--forma-text-strong)]">Image prompt</div>
-                  <div className="mt-0.5 text-[11px] leading-4 text-[var(--forma-text-muted)]">
-                    Add details below, then press Enter.
-                  </div>
+              <div className="mb-2 flex items-center gap-2">
+                <div className="relative h-20 w-20 shrink-0">
+                  <Image
+                    src={selectedImage}
+                    alt="Attached prompt image"
+                    width={80}
+                    height={80}
+                    unoptimized
+                    className="h-20 w-20 rounded-xl border border-white/10 bg-black/20 object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={onRemoveImage}
+                    className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-[#2f3238] text-zinc-200 shadow-lg transition-colors hover:bg-[#3a3d44] hover:text-white"
+                    aria-label="Remove image"
+                    title="Remove image"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={onRemoveImage}
-                  className="rounded-md p-1.5 text-[var(--forma-text-muted)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)]"
-                  aria-label="Remove image"
-                >
-                  <X className="h-4 w-4" />
-                </button>
               </div>
             )}
             {selectedDocumentName && (

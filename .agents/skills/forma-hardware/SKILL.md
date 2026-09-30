@@ -1,11 +1,11 @@
 ---
 name: forma-hardware
-description: Compile, validate, inspect, or generate safe low-voltage maker-electronics projects with Forma. Use for Hardware IR, BOMs, wiring, schematics, mechanical notes, and build instructions in OpenClaw, NemoClaw, OpenCode, Claude Code, or Codex.
+description: Compile, validate, inspect, or generate safe low-voltage maker-electronics projects with Forma. Use for Hardware Intermediate Representation, BOMs, wiring, schematics, mechanical notes, and build instructions in Cursor, Grok Bot, OpenClaw, NemoClaw, OpenCode, Claude Code, or Codex.
 ---
 
 # Forma Hardware
 
-Use the host agent to author the design and Forma to normalize Hardware IR, apply deterministic electrical checks, and render diagrams. The host agent owns the conversation and the working project state; Forma owns accepted snapshots, deterministic validation, persistence, and display. None of the compile, validate, or render steps below transfer authoring ownership back to Forma — Forma never directs the agent's internal authoring steps. For CAD-capable workflows, use the Forma-owned OpenCAD adapter described in [references/cad.md](references/cad.md). Never replace a failed live generation with simulated output unless the user explicitly requests simulation.
+Use the host agent to author the design and Forma to normalize Hardware Intermediate Representation, apply deterministic electrical checks, and render diagrams. The host agent owns the conversation and the working project state; Forma owns accepted snapshots, deterministic validation, persistence, and display. None of the compile, validate, or render steps below transfer authoring ownership back to Forma — Forma never directs the agent's internal authoring steps. For CAD-capable workflows, use the Forma-owned OpenCAD adapter described in [references/cad.md](references/cad.md). Never replace a failed live generation with simulated output unless the user explicitly requests simulation.
 
 ## CAD dependency
 
@@ -37,12 +37,16 @@ python <skill-directory>/scripts/forma.py tools
 
 It reads `FORMA_MCP_URL`, defaulting to `http://127.0.0.1:8000/mcp`, and optional `FORMA_AUTH_TOKEN`. Read [references/configuration.md](references/configuration.md) if the server is not connected.
 
+The bundled client also needs a running backend. When only local command execution
+is available, follow [references/cli-only.md](references/cli-only.md) for local
+validation, CAD builds, and migration planning instead of the MCP compile workflow.
+
 ## Author and compile
 
 1. Keep the project within safe low-voltage educational or maker scope. Decline weapons, critical medical or life-support devices, mains AC, automotive control, and unsafe high-power battery requests.
-2. Read [references/hardware-ir.md](references/hardware-ir.md), then author complete Hardware IR from the brief. Preserve stated power, dimensions, budget, environment, interfaces, and part preferences. Do not invent verified supplier availability or physical clearances.
+2. Read [references/hardware-ir.md](references/hardware-ir.md), then author complete Hardware Intermediate Representation from the brief. Preserve stated power, dimensions, budget, environment, interfaces, and part preferences. Do not invent verified supplier availability or physical clearances.
 3. Save the IR as `$PROJECT_DIR/forma-project.json`.
-4. Call `forma.compile_project` with `project_ir` and the correct `authoring_agent` (`openclaw`, `nemoclaw`, `opencode`, `claude`, or `codex`). With the bundled client:
+4. Call `forma.compile_project` with `project_ir` and the correct `authoring_agent` (`openclaw`, `nemoclaw`, `opencode`, `claude`, `codex`, or `other` for Cursor/Grok Bot). With the bundled client:
 
 ```bash
 python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent openclaw --output "$PROJECT_DIR/compiled-project.json" --update-project
@@ -51,7 +55,7 @@ python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.js
 ```
 
 When using the bundled client, add `--update-project` so the canonical local
-manifest contains the returned compiled IR and can be uploaded later. The
+manifest contains the returned compiled Intermediate Representation and can be uploaded later. The
 client also writes `validation.json`, `wiring.mmd`, and `schematic.svg` beside
 the manifest when those compiler artifacts are returned:
 

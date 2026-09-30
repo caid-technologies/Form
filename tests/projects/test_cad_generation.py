@@ -15,7 +15,7 @@ from forma_core.workspaces.projects.cad_generation import (
 )
 from forma_core.workspaces.projects.models import (
     ComponentInstance,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     MechanicalMotionIntent,
     MechanicalNotes,
     MechanicalPlacement,
@@ -23,8 +23,8 @@ from forma_core.workspaces.projects.models import (
 )
 
 
-def mechanical_project() -> HardwareIR:
-    return HardwareIR(
+def mechanical_project() -> HardwareIntermediateRepresentation:
+    return HardwareIntermediateRepresentation(
         mechanical=MechanicalNotes(
             enclosure_type="Open frame",
             mounting_guidance="Use a flat base plate.",
@@ -34,7 +34,7 @@ def mechanical_project() -> HardwareIR:
     )
 
 
-def complex_mechanical_project() -> HardwareIR:
+def complex_mechanical_project() -> HardwareIntermediateRepresentation:
     placements = [
         MechanicalPlacement(
             ref_des=f"U{index}",
@@ -103,7 +103,7 @@ def complex_mechanical_project() -> HardwareIR:
         )
         for placement in placements
     ]
-    return HardwareIR(
+    return HardwareIntermediateRepresentation(
         components=components,
         mechanical=MechanicalNotes(
             physical_form="Curved desktop instrument enclosure",

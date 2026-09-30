@@ -42,10 +42,10 @@ time; only explicit command selections are pinned across retries.
 ### Vertex tool schema compatibility
 
 The restricted `update_project`, `compile_project`, and `validate_project` tools
-advertise `project_ir` as a **JSON string**. Serialize the complete HardwareIR
+advertise `project_ir` as a **JSON string**. Serialize the complete HardwareIntermediateRepresentation
 object into that argument; its parameter description includes the canonical
-HardwareIR JSON Schema, including nested requirements and recursive definitions.
-The backend decodes and validates it with the same HardwareIR model after
+HardwareIntermediateRepresentation JSON Schema, including nested requirements and recursive definitions.
+The backend decodes and validates it with the same HardwareIntermediateRepresentation model after
 capability authorization. Older callers can continue sending an object.
 
 This avoids an OpenCode Vertex adapter limitation that drops `$ref`/`$defs` from

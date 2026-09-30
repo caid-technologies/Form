@@ -13,7 +13,7 @@ Regular generation keeps the existing interaction and execution model:
 3. **Model resolution** selects live LLM generation or deterministic simulation fallback.
 4. **Intent + requirements** establish the project goal and constraints.
 5. **Component selection, wiring, validation, BOM, mechanical, and assembly agents** produce the project in the established sequential pipeline.
-6. **Hardware IR** is persisted as the canonical structured project.
+6. **Hardware Intermediate Representation** is persisted as the canonical structured project.
 7. Optional **whole-product image** and **native assembly CAD** outputs are generated directly when requested.
 8. The finished project is rendered in the UI and exposed through the existing API/A2A surfaces.
 
@@ -21,7 +21,7 @@ Regular generation does **not** create subsystem visuals, wait on a visual appro
 
 ### Progressive (explicit opt-in)
 
-Progressive generation uses the same `HardwareIR`, `SystemArchitecture`, and agent primitives, but adds a durable cost-aware design lifecycle:
+Progressive generation uses the same `HardwareIntermediateRepresentation`, `SystemArchitecture`, and agent primitives, but adds a durable cost-aware design lifecycle:
 
 ```text
 User intent
@@ -78,7 +78,7 @@ flowchart TD
   M --> Q{Generation mode}
 
   Q -->|Regular default| R[Established sequential agent pipeline]
-  R --> RI[Typed Hardware IR]
+  R --> RI[Typed Hardware Intermediate Representation]
   RI --> RO[Optional whole-product image + assembly CAD]
 
   Q -->|Progressive opt-in| P1[Intent + requirements + system topology]
@@ -89,7 +89,7 @@ flowchart TD
   P4 -->|Approve| P5[Approved visual state]
   P5 -->|Continue to CAD| P6[Component CAD artifacts]
   P6 --> P7[Assembly CAD]
-  P7 --> PI[Typed Hardware IR + lifecycle artifacts]
+  P7 --> PI[Typed Hardware Intermediate Representation + lifecycle artifacts]
 
   RI --> UI[Project UI]
   PI --> UI
@@ -109,7 +109,7 @@ flowchart TD
 - **Utilities:** Render Mermaid and SVG schematics from the IR.
 
 ## Output artifacts
-- **Hardware IR JSON** (typed source of truth)
+- **Hardware Intermediate Representation JSON** (typed source of truth)
 - **React Flow schematic** (interactive wiring view)
 - **SVG schematic** (static vector view)
 - **Mermaid diagram** (lightweight topology graph)

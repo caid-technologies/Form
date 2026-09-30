@@ -25,11 +25,11 @@ from forma_core.workspaces.projects.design_lifecycle import (
     stage_fidelity,
     system_node_fingerprint,
 )
-from forma_core.workspaces.projects.models import HardwareIR, SystemArchitecture, SystemNode
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, SystemArchitecture, SystemNode
 
 
-def project() -> HardwareIR:
-    return HardwareIR(
+def project() -> HardwareIntermediateRepresentation:
+    return HardwareIntermediateRepresentation(
         system_architecture=SystemArchitecture(
             summary="Small robot",
             root=SystemNode(

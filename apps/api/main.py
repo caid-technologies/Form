@@ -121,7 +121,7 @@ from forma_core.agents.clarification import ask_clarifying_questions
 from forma_core.workspaces.chats.models import Chat, ChatUpsertRequest, ProjectChatUpsertRequest
 from forma_core.workspaces.projects.models import (
     ClarifyingQuestionsRequest, ClarifyingQuestionsResponse, ComponentInstance,
-    ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
+    ConnectionNet, GenerateProjectRequest, HardwareIntermediateRepresentation, IterateProjectRequest,
     ProjectContributionConsentRequest, ProjectDetail, ProjectIdentityResponse, ProjectUpdateRequest, ProjectSummary, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
 from forma_core.workspaces.projects import ProjectReadError, ProjectRevision, ProjectStateError
@@ -697,7 +697,7 @@ def runtime_config_endpoint(user: UserContext = Depends(optional_user_context)):
 async def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext = Depends(require_user_context)):
     """
     Submits a natural language hardware idea and optional multimodal reference image.
-    Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
+    Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware Intermediate Representation, SVG schematic, and Mermaid diagram.
     """
     require_hosted_chat_enabled()
     owner_user_id = _require_authenticated_user(user)
@@ -2273,7 +2273,7 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
                 sanitized_sources.append(source)
                 continue
             sanitized_source = dict(source)
-            # MechanicalSource.url is required by HardwareIR. Keep the public
+            # MechanicalSource.url is required by HardwareIntermediateRepresentation. Keep the public
             # shape valid while removing the downloadable target itself.
             sanitized_source["url"] = ""
             for key in ("href", "download_url", "downloadUrl", "file_url", "fileUrl", "source_url", "sourceUrl"):
@@ -2336,13 +2336,13 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Proje
     mermaid_code = None
     svg_schematic = None
     try:
-        typed_ir = HardwareIR.model_validate(project_ir)
+        typed_ir = HardwareIntermediateRepresentation.model_validate(project_ir)
         project_ir = typed_ir.model_dump(mode="json")
         project_object = build_project_object(typed_ir).model_dump(mode="json")
         mermaid_code = generate_mermaid_chart(typed_ir)
         svg_schematic = generate_svg_schematic(typed_ir)
     except ValidationError:
-        # Keep older CLI manifests inspectable even if they predate HardwareIR.
+        # Keep older CLI manifests inspectable even if they predate HardwareIntermediateRepresentation.
         pass
 
     return ProjectDetail(
@@ -2540,7 +2540,7 @@ def list_my_projects_endpoint(
 
 @app.get("/projects/{project_id}/image-summary")
 def get_project_image_summary_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
-    """Returns gallery-safe project metadata without validating or expanding the full hardware IR."""
+    """Returns gallery-safe project metadata without validating or expanding the full hardware intermediate representation."""
     try:
         resolved = resolve_project_for_read(project_id, user.owner_user_id)
     except ProjectReadError as exc:
@@ -2614,9 +2614,9 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
     can_chat = resolved.can_chat
     stored_hardware_ir = json.loads(json.dumps(project.hardware_ir or {}))
     try:
-        ir = HardwareIR(**stored_hardware_ir)
+        ir = HardwareIntermediateRepresentation(**stored_hardware_ir)
     except ValidationError as exc:
-        # Saved projects can outlive the current HardwareIR schema. They should
+        # Saved projects can outlive the current HardwareIntermediateRepresentation schema. They should
         # remain inspectable, but public readers still receive a redacted copy.
         logger.warning(
             "Returning legacy project IR without derived artifacts: project_id=%s validation_errors=%s",
@@ -2653,7 +2653,7 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
         else:
             sanitized_payload = _without_downloadable_project_assets(ir.model_dump())
             try:
-                response_ir = HardwareIR(**sanitized_payload)
+                response_ir = HardwareIntermediateRepresentation(**sanitized_payload)
             except ValidationError:
                 return {
                     "project_id": project.project_id,
@@ -2986,7 +2986,7 @@ def generate_project_video_prompt_endpoint(project_id: str, user: UserContext = 
     project = _resolve_project_reader(project_id, user)
 
     try:
-        ir = HardwareIR(**project.hardware_ir)
+        ir = HardwareIntermediateRepresentation(**project.hardware_ir)
         ir.assembly_metadata = hydrate_image_storage_metadata(ir.assembly_metadata, project.project_id)
         prompt_payload = generate_image_to_video_prompt_from_namespaces(ir)
         return {
@@ -3037,7 +3037,7 @@ def project_visual_decision_endpoint(
         prompt = resolved.design_brief.summary if resolved.design_brief is not None else ""
         chat_id = resolved.design_brief.conversation_id if resolved.design_brief is not None else None
     else:
-        ir = HardwareIR.model_validate(resolved.project.hardware_ir)
+        ir = HardwareIntermediateRepresentation.model_validate(resolved.project.hardware_ir)
         prompt = str(getattr(resolved.project, "prompt", "") or "")
         chat_id = getattr(resolved.project, "chat_id", None)
 
@@ -3154,7 +3154,7 @@ def iterate_project_endpoint(
     if project is not None:
         _require_project_reader(project, user)
         save_owner_user_id = _require_project_owner(project, user) if request.save else None
-        current_ir = HardwareIR(**project.hardware_ir)
+        current_ir = HardwareIntermediateRepresentation(**project.hardware_ir)
         project_prompt = project.prompt
         project_chat_id = getattr(project, "chat_id", None)
         project_created_at = project.created_at
@@ -3374,7 +3374,7 @@ def video_self_correct_project_endpoint(
         raise HTTPException(status_code=404, detail="Project brief not found.") from exc
 
     try:
-        current_ir = HardwareIR(**project.hardware_ir)
+        current_ir = HardwareIntermediateRepresentation(**project.hardware_ir)
         review_video_url = _resolve_stored_video_review_target(project.project_id, request)
         agent = FireworksVideoSelfCorrectionAgent(
             review_client=FireworksVideoReviewClient(model=request.review_model),

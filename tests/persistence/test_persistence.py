@@ -19,7 +19,7 @@ from forma_core.persistence.providers import SupabaseProvider, create_sqlite_pro
 from forma_core.persistence.repositories import SqlAlchemyRepository, SupabaseRepository
 from forma_core.workspaces.design_briefs import DESIGN_BRIEF_SCHEMA_VERSION, DesignBrief
 from forma_core.workspaces.projects import ProjectRevision
-from forma_core.workspaces.projects.models import HardwareIR, ProjectOverview
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, ProjectOverview
 
 
 class PersistenceArchitectureTests(unittest.TestCase):
@@ -54,7 +54,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
             brief_version=1,
             created_at=datetime.now(timezone.utc),
         )
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Published Sensor",
                 description="A compact sensor controller.",
@@ -91,7 +91,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
 
     def test_legacy_project_iteration_bootstraps_one_canonical_revision_then_appends(self) -> None:
         project_id = str(uuid.uuid4())
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Legacy Sensor",
                 description="A legacy sensor.",
@@ -326,7 +326,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
         canonical_id = str(uuid.uuid4())
         legacy_id = str(uuid.uuid4())
         deleted_id = str(uuid.uuid4())
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Current canonical title",
                 description="Canonical state",

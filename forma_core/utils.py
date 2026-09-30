@@ -1,7 +1,7 @@
 import re
 from typing import Dict
 import html
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
 _MERMAID_ID_PATTERN = re.compile(r"[^a-zA-Z0-9_]")
 
@@ -36,7 +36,7 @@ def _mermaid_component_ref(node_ids: Dict[str, str], ref_des: str) -> str:
     return node_ids.get(ref_des, _mermaid_node_id(ref_des, "UNKNOWN"))
 
 
-def generate_mermaid_chart(ir: HardwareIR) -> str:
+def generate_mermaid_chart(ir: HardwareIntermediateRepresentation) -> str:
     """
     Generates a valid Mermaid.js flowchart string mapping all electrical connections
     between components for direct display on the client.
@@ -99,7 +99,7 @@ def generate_mermaid_chart(ir: HardwareIR) -> str:
     return "\n".join(lines)
 
 
-def generate_svg_schematic(ir: HardwareIR) -> str:
+def generate_svg_schematic(ir: HardwareIntermediateRepresentation) -> str:
     """
     Generates a beautifully arranged, color-coded SVG schematic of the circuit.
     Renders MCUs in the center, sensors on the left, displays/actuators on the right.

@@ -2,6 +2,10 @@
 
 Forma OSS runs a FastAPI backend and a Next.js frontend. Supabase is supported for deployment through the Supabase client; the backend falls back to SQLite for local use.
 
+For detailed CLI commands and runtime settings, see the
+[CLI and runtime reference](runtime-reference.md). For other topics, use the
+[documentation index](README.md).
+
 ## Prerequisites
 - **Python 3.11+**
 - **Node.js 18+**
@@ -11,7 +15,7 @@ Forma OSS runs a FastAPI backend and a Next.js frontend. Supabase is supported f
 ## OpenCode local setup
 
 Forma can run entirely locally while OpenCode supplies the model and authors
-the Hardware IR. Local generation, validation, rendering, and project status do
+the Hardware Intermediate Representation. Local generation, validation, rendering, and project status do
 not require a Forma account. The account is only needed when a project is
 uploaded to Forma Cloud.
 

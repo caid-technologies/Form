@@ -16,7 +16,7 @@ from apps.api.auth import UserContext, optional_user_context
 from forma_core.workspaces.projects.models import (
     FunctionalRequirements,
     GenerateProjectRequest,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     IterateProjectRequest,
     MechanicalNotes,
     MechanicalSource,
@@ -98,7 +98,7 @@ def _legacy_inventory(project: SimpleNamespace) -> SimpleNamespace:
     )
 
 
-def _canonical_revision_payload(project_id: str, state: HardwareIR, revision: int = 1) -> dict:
+def _canonical_revision_payload(project_id: str, state: HardwareIntermediateRepresentation, revision: int = 1) -> dict:
     return {
         "schema_version": "1.0",
         "state": state.model_dump(mode="json"),
@@ -353,7 +353,7 @@ class ProjectReadAccessTests(unittest.TestCase):
 
     def test_owner_list_includes_canonical_project_without_legacy_row(self) -> None:
         project_id = "11111111-1111-4111-8111-111111111111"
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Canonical controller",
                 description="A canonical-only generated project.",
@@ -430,7 +430,7 @@ class ProjectReadAccessTests(unittest.TestCase):
             owner_user_id="user-a",
             revision=1,
             created_at=project.created_at,
-            state=HardwareIR.model_validate(project.hardware_ir),
+            state=HardwareIntermediateRepresentation.model_validate(project.hardware_ir),
         )
         brief = SimpleNamespace(
             conversation_id=project.chat_id,
@@ -501,7 +501,7 @@ class ProjectReadAccessTests(unittest.TestCase):
 
     def test_public_paginated_list_uses_current_canonical_revision_without_brief_or_legacy_reads(self) -> None:
         project_id = "11111111-1111-4111-8111-111111111111"
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Current canonical title",
                 description="Current state",
@@ -542,7 +542,7 @@ class ProjectReadAccessTests(unittest.TestCase):
 
     def test_my_paginated_list_uses_identity_and_legacy_fallback_rows_without_chat_history(self) -> None:
         canonical_id = "11111111-1111-4111-8111-111111111111"
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Canonical project",
                 description="Canonical state",
@@ -701,7 +701,7 @@ class ProjectReadAccessTests(unittest.TestCase):
 
     def test_owner_can_read_canonical_only_project_through_project_endpoint(self) -> None:
         project_id = "11111111-1111-4111-8111-111111111111"
-        state = HardwareIR.model_validate(_project(project_id, owner_user_id="user-a", visibility="private").hardware_ir)
+        state = HardwareIntermediateRepresentation.model_validate(_project(project_id, owner_user_id="user-a", visibility="private").hardware_ir)
         revision = SimpleNamespace(
             project_id=project_id,
             state=state,
@@ -808,7 +808,7 @@ class ProjectReadAccessTests(unittest.TestCase):
         downloadable_url = "https://downloads.example.test/private/enclosure.step"
         legacy_ir = {
             # This deliberately resembles a saved legacy payload rather than a
-            # current HardwareIR. Public reads must not turn schema drift into a
+            # current HardwareIntermediateRepresentation. Public reads must not turn schema drift into a
             # 500 response merely to display the inspectable project artifact.
             "overview": {"title": "Legacy enclosure"},
             "components": [
@@ -862,7 +862,7 @@ class ProjectReadAccessTests(unittest.TestCase):
     def test_public_current_ir_keeps_required_cad_url_field_valid_while_redacting_value(self) -> None:
         downloadable_url = "https://downloads.example.test/private/enclosure.step"
         cad_model = {"url": downloadable_url, "s3_uri": "s3://private-bucket/enclosure.step"}
-        ir = HardwareIR(
+        ir = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Public enclosure",
                 description="A small low-voltage enclosure.",
@@ -1025,7 +1025,7 @@ class ProjectIterationAccessTests(unittest.TestCase):
     def test_saved_legacy_iteration_appends_revision_and_refreshes_projection(self) -> None:
         project_id = "11111111-1111-4111-8111-111111111111"
         project = _project(project_id, owner_user_id="user-a", visibility="private")
-        current = HardwareIR.model_validate(project.hardware_ir)
+        current = HardwareIntermediateRepresentation.model_validate(project.hardware_ir)
         revised = current.model_copy(deep=True)
         revised.assembly_metadata["revision"] = 2
         revised.assembly_metadata["last_iteration"] = "enclosure"

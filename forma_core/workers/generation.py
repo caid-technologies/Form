@@ -36,7 +36,7 @@ from forma_core.workspaces.projects import (
     ProjectStateService,
     ProjectSystem,
 )
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.cad_generation import (
     cad_project_artifact,
 )
@@ -69,7 +69,7 @@ class GenerationEngine(Protocol):
     def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft | Awaitable[ProjectRevisionDraft]: ...
 
 
-class HardwareIRGenerationEngine:
+class HardwareIntermediateRepresentationGenerationEngine:
     """Adapter for the existing structured pipeline with legacy persistence disabled."""
 
     def __init__(
@@ -167,7 +167,7 @@ def _reference_image_bytes(image_data: str | None) -> tuple[bytes | None, str | 
         return None, None
 
 
-def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> ProjectRevisionDraft:
+def build_generation_draft(design_brief: DesignBrief, state: HardwareIntermediateRepresentation) -> ProjectRevisionDraft:
     component_refs = [component.ref_des for component in state.components]
     known_component_refs = set(component_refs)
     used_system_ids = {"system-primary"}
@@ -311,7 +311,7 @@ class GenerationWorker:
         project_publisher: ProjectPublisher | None = None,
     ) -> None:
         self._state = state_service
-        self._engine = engine or HardwareIRGenerationEngine()
+        self._engine = engine or HardwareIntermediateRepresentationGenerationEngine()
         self._project_publisher = project_publisher
 
     def worker_definition(self) -> WorkerDefinition:
@@ -380,7 +380,7 @@ class GenerationWorker:
 
         try:
             generation_engine = self._engine
-            if isinstance(self._engine, HardwareIRGenerationEngine):
+            if isinstance(self._engine, HardwareIntermediateRepresentationGenerationEngine):
                 settings = await asyncio.to_thread(
                     resolve_user_integration_settings,
                     UserIntegrationStore.for_user(owner_user_id),
@@ -398,7 +398,7 @@ class GenerationWorker:
                 percent_complete=10,
                 message="Generating structured project state from the frozen DesignBrief.",
             ))
-            if isinstance(generation_engine, HardwareIRGenerationEngine):
+            if isinstance(generation_engine, HardwareIntermediateRepresentationGenerationEngine):
                 event_loop = asyncio.get_running_loop()
 
                 prior_generation_run = request.metadata.get("prior_generation_run")
@@ -604,7 +604,7 @@ def _success_result(request: WorkerRequest, outcome: ProjectRevisionOutcome) -> 
     )
 
 
-def _generation_retry_metadata(state: HardwareIR) -> dict[str, Any] | None:
+def _generation_retry_metadata(state: HardwareIntermediateRepresentation) -> dict[str, Any] | None:
     generation_run = (state.assembly_metadata or {}).get("generation_run") or {}
     records = generation_run.get("records") if isinstance(generation_run, dict) else None
     if not isinstance(records, dict):
@@ -701,6 +701,6 @@ __all__ = [
     "GenerationEngine",
     "GenerationWorker",
     "GenerationWorkerPayload",
-    "HardwareIRGenerationEngine",
+    "HardwareIntermediateRepresentationGenerationEngine",
     "build_generation_draft",
 ]

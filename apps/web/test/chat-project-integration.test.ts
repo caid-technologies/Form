@@ -41,6 +41,9 @@ test("exports live in the project tab bar and own all project download actions",
   assert.ok(exportsPanel.includes(">STEP</span>"));
   assert.ok(exportsPanel.includes('["stl", "3mf", "obj"]'));
   assert.ok(exportsPanel.includes("Download G-code"));
+  assert.ok(exportsPanel.includes("left-0 right-auto"));
+  assert.ok(exportsPanel.includes("sm:left-auto sm:right-0"));
+  assert.doesNotMatch(cad, /Download STEP|\\bStepDownload\\b/);
   assert.doesNotMatch(projectPanels, /docs-export-menu/);
   assert.doesNotMatch(chatProjectLayout, /surfaceTab|setSurfaceTab|>Exports<|>Project</);
 });

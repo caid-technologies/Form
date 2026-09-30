@@ -12,13 +12,13 @@ from apps.api.opencode_api import router
 from forma_core.opencode.capabilities import ConnectorCapability
 from forma_core.opencode.models import OpenCodeOperation
 from forma_core.opencode.store import OpenCodeStore
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 from forma_core.workspaces.projects.state import ProjectRevision, ProjectArtifact
 
 
-def wired_project() -> HardwareIR:
-    return HardwareIR.model_validate({
+def wired_project() -> HardwareIntermediateRepresentation:
+    return HardwareIntermediateRepresentation.model_validate({
         "components": [{"ref_des": ref, "part_number": ref, "name": ref,
                         "category": "Module", "rationale": "USB supply",
                         "pins": [{"pin_id": "VBUS", "name": "USB power", "pin_type": "Power", "voltage": 5}]}
@@ -30,7 +30,7 @@ def wired_project() -> HardwareIR:
 
 class SavedOutcomeTests(unittest.TestCase):
     def test_readiness_requires_more_than_a_component_or_self_declared_validity(self) -> None:
-        draft = HardwareIR(assembly_metadata={"project_readiness": "complete"})
+        draft = HardwareIntermediateRepresentation(assembly_metadata={"project_readiness": "complete"})
         self.assertEqual("draft", evaluate_design_outcome(draft).project_readiness)
         project = wired_project()
         self.assertEqual("complete", evaluate_design_outcome(project).project_readiness)
@@ -43,7 +43,7 @@ class SavedOutcomeTests(unittest.TestCase):
     def test_completion_verifies_saved_draft_wired_invalid_and_missing_results(self) -> None:
         invalid = wired_project()
         invalid.nets = []
-        for project, expected in ((HardwareIR(), "draft"), (wired_project(), "complete"), (invalid, "partial"), (None, None)):
+        for project, expected in ((HardwareIntermediateRepresentation(), "draft"), (wired_project(), "complete"), (invalid, "partial"), (None, None)):
             with self.subTest(expected=expected), patch.dict(os.environ, {"FORMA_USER_SECRETS_KEY": "isolated-test-key"}):
                 store = OpenCodeStore(":memory:")
                 self.addCleanup(store.close)

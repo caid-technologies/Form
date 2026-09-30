@@ -1,6 +1,8 @@
+import base64
 import json
 import logging
 from forma_core.config import config
+from forma_core.config.parti import resolve_parti_model
 import re
 import uuid
 from datetime import datetime, timezone
@@ -55,7 +57,7 @@ from forma_core.runtime import (
 )
 from forma_core.user_integrations import ResolvedIntegrationSettings
 from forma_core.workspaces.projects.models import (
-    HardwareIR, ProjectOverview, FunctionalRequirements, 
+    HardwareIntermediateRepresentation, ProjectOverview, FunctionalRequirements, 
     ComponentInstance, ConnectionNet, PinReference, AssemblyStep, 
     MechanicalNotes, MechanicalSource, MechanicalVector3, MechanicalRotation3,
     MechanicalPlacement, MechanicalSpatialRelationship, PinMappingEntry,
@@ -153,7 +155,6 @@ PLACEHOLDER_TEXT_VALUES = {
     "new",
     "new__rewrite_1",
 }
-PARTI_BASE_MODEL_ID = "caid-technologies/parti-base"
 PARTI_COMPONENT_TITLE_VALUES = {
     "main mcu",
     "mcu",
@@ -184,10 +185,6 @@ PARTI_COMPONENT_TITLE_TOKENS = {
 
 def _is_placeholder_text(value: Optional[str]) -> bool:
     return str(value or "").strip().lower() in PLACEHOLDER_TEXT_VALUES
-
-
-def _is_parti_base_selector(provider_name: str, model_name: str) -> bool:
-    return provider_name == "runpod" and model_name == PARTI_BASE_MODEL_ID
 
 
 def _clean_parti_text(value: Any) -> Optional[str]:
@@ -306,7 +303,7 @@ def get_db_component_templates() -> List[Dict[str, Any]]:
         })
     return templates
 
-# Helper utilities to enrich HardwareIR schemas dynamically
+# Helper utilities to enrich HardwareIntermediateRepresentation schemas dynamically
 def extract_power_rails(components: List[ComponentInstance], nets: List[ConnectionNet]) -> List[PowerRail]:
     rails = []
     component_lookup = {component.ref_des: component for component in components}
@@ -395,7 +392,7 @@ def _is_enclosure_component(component: ComponentInstance) -> bool:
         return False
     return any(token in text for token in ["main enclosure", "enclosure shell", "project box", "shell", "housing", "case"])
 
-def _infer_render_dimensions(ir: HardwareIR) -> MechanicalVector3:
+def _infer_render_dimensions(ir: HardwareIntermediateRepresentation) -> MechanicalVector3:
     if ir.mechanical and ir.mechanical.render_dimensions:
         return ir.mechanical.render_dimensions
 
@@ -563,7 +560,7 @@ def _offset_for_axis(source: MechanicalPlacement, target: MechanicalPlacement, a
         return target.position.y_mm - source.position.y_mm
     return target.position.z_mm - source.position.z_mm
 
-def build_mechanical_render_data(ir: HardwareIR) -> HardwareIR:
+def build_mechanical_render_data(ir: HardwareIntermediateRepresentation) -> HardwareIntermediateRepresentation:
     """Populate the live Three.js/R3F render contract when the agent output is sparse."""
     ensure_system_architecture(ir)
     if not ir.mechanical or not ir.components:
@@ -742,7 +739,7 @@ class HardwarePipelineOrchestrator:
         image_bytes: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
         generation_metadata: Optional[Dict[str, Any]] = None,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         """Orchestrates the 7-agent hardware compilation pipeline with verification loop."""
         self.validate_configured_model()
         self._active_generation_metadata = {
@@ -777,7 +774,7 @@ class HardwarePipelineOrchestrator:
             )
             validation_summary = ValidationSummary(critical=[issue])
             
-            project_ir = HardwareIR(
+            project_ir = HardwareIntermediateRepresentation(
                 hardware_ir_version="0.1",
                 overview=overview,
                 requirements=FunctionalRequirements(
@@ -837,8 +834,8 @@ class HardwarePipelineOrchestrator:
                 raise AlphaGenerationUnavailableError(generation_unavailable_message(self.get_debug_config())) from e
             raise
 
-        if _is_parti_base_selector(model_validation.provider, model_validation.actual_model or self.llm_provider.model_name):
-            return self._generate_parti_base_project(
+        if resolve_parti_model(model_validation.provider, model_validation.actual_model or self.llm_provider.model_name):
+            return self._generate_parti_project(
                 user_prompt,
                 model_validation=model_validation,
                 image_bytes=image_bytes,
@@ -870,8 +867,7 @@ class HardwarePipelineOrchestrator:
                     "LLM output was unusable: the selected model returned placeholder project overview fields "
                     f"(title={overview.title!r}, description={overview.description!r}) for "
                     f"{self.llm_provider.provider_name}/{self.llm_provider.model_name}. "
-                    "Use openai/gpt-5.6-sol for this pipeline or add a dedicated Parti adapter before using "
-                    "runpod/caid-technologies/parti-base for full project generation."
+                    "Choose a model compatible with the requested structured-output schema."
                 )
 
             # 2. Requirements Agent
@@ -1147,8 +1143,8 @@ class HardwarePipelineOrchestrator:
                 
                 validation_summary = build_validation_summary(validation_issues)
 
-                # Compile into final HardwareIR
-                project_ir = HardwareIR(
+                # Compile into final HardwareIntermediateRepresentation
+                project_ir = HardwareIntermediateRepresentation(
                     hardware_ir_version="0.1",
                     overview=overview,
                     requirements=requirements,
@@ -1210,25 +1206,42 @@ class HardwarePipelineOrchestrator:
             logger.error("Pipeline execution encountered an error: %s", e)
             return self._generate_failed_project(e)
 
-    def _request_parti_base_seed(
+    def _request_parti_seed(
         self,
         user_prompt: str,
         image_bytes: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        selected_model = f"{self.llm_provider.provider_name}/{self.llm_provider.model_name}"
+        parti_model = resolve_parti_model(self.llm_provider.provider_name, self.llm_provider.model_name)
+        if image_bytes and (parti_model is None or not parti_model.supports_images):
+            raise LLMProviderInputError(f"The selected Parti model '{selected_model}' cannot read reference images.")
         request_json = getattr(self.llm_provider, "_request_json", None)
         if not callable(request_json):
-            return None, "Runpod Parti provider does not expose an OpenAI-compatible request method."
+            return None, f"Parti model {selected_model} does not expose an OpenAI-compatible request method."
 
         prompt = (
             "You are Parti, a hardware project seed generator. Return only one concise JSON object. "
-            "Give a concrete project name, a one sentence summary, and up to eight hardware role hints. "
+            'Use keys "project_title", "summary", and "hardware_roles": a concrete project name, '
+            "a one sentence summary, and up to eight hardware role hints. "
+            "Use the reference image when supplied. "
             "Do not use unknown, new__, synthetic, seed_ref, visual_ref, or placeholder values.\n"
             f"User request: {user_prompt}"
         )
+        content: Any = prompt
+        if image_bytes:
+            mime_type = image_mime_type or "image/jpeg"
+            if mime_type not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
+                raise LLMProviderInputError(f"Parti model {selected_model} received an unsupported image MIME type.")
+            content = [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {
+                    "url": f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+                }},
+            ]
         payload = {
             "model": self.llm_provider.model_name,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": content}],
             "max_tokens": 500,
             "temperature": 0.2,
             "repetition_penalty": 1.1,
@@ -1247,10 +1260,13 @@ class HardwarePipelineOrchestrator:
             message = (choices[0].get("message") or {}) if choices else {}
             content = message.get("content")
             if not isinstance(content, str) or not content.strip():
-                return None, "Runpod Parti seed response did not include text content."
-            return _extract_json_object(content), None
+                return None, f"Parti model {selected_model} seed response did not include text content."
+            seed = _extract_json_object(content)
+            if seed is None:
+                return None, f"Parti model {selected_model} seed response did not include a usable JSON object."
+            return seed, None
         except Exception as exc:
-            return None, str(exc)
+            return None, f"Parti model {selected_model} seed request failed: {exc}"
         finally:
             if original_timeout is not None:
                 self.llm_provider.timeout_seconds = original_timeout
@@ -1277,20 +1293,25 @@ class HardwarePipelineOrchestrator:
             pins=self._get_pins_for_part(part_number),
         )
 
-    def _generate_parti_base_project(
+    def _generate_parti_project(
         self,
         user_prompt: str,
         *,
         model_validation: LLMProviderValidation,
         image_bytes: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
-    ) -> HardwareIR:
-        emit_agent_pipeline_event("default", "intent_parser", "started", details={"adapter": "parti-base-v1"})
-        seed, seed_error = self._request_parti_base_seed(user_prompt, image_bytes, image_mime_type)
+    ) -> HardwareIntermediateRepresentation:
+        selected_model = model_validation.actual_model or self.llm_provider.model_name
+        parti_model = resolve_parti_model(model_validation.provider, selected_model)
+        if parti_model is None:
+            raise LLMProviderConfigError(f"No Parti adapter configured for {model_validation.provider}/{selected_model}.")
+        adapter_details = {"adapter": parti_model.adapter_version, "model": selected_model}
+        emit_agent_pipeline_event("default", "intent_parser", "started", details=adapter_details)
+        seed, seed_error = self._request_parti_seed(user_prompt, image_bytes, image_mime_type)
         if _generation_fallback_disabled() and (seed_error or not seed):
             emit_agent_pipeline_event("default", "intent_parser", "failed", details={"error": seed_error})
             raise LLMProviderOutputError(
-                "Runpod Parti seed generation failed and generation fallback is disabled: "
+                f"Runpod Parti model {selected_model} seed generation failed and generation fallback is disabled: "
                 f"{seed_error or 'seed response did not include a usable JSON object.'}"
             )
 
@@ -1303,7 +1324,7 @@ class HardwarePipelineOrchestrator:
         if _generation_fallback_disabled() and not seed_title:
             seed_preview = json.dumps(seed, ensure_ascii=True)[:1000] if seed is not None else "null"
             raise LLMProviderOutputError(
-                "Runpod Parti seed response did not include a usable project title and generation fallback is disabled. "
+                f"Runpod Parti model {selected_model} seed response did not include a usable project title and generation fallback is disabled. "
                 f"seed_preview={seed_preview}"
             )
         if _generation_fallback_disabled():
@@ -1311,12 +1332,12 @@ class HardwarePipelineOrchestrator:
             if seed_quality_issue:
                 seed_preview = json.dumps(seed, ensure_ascii=True)[:1000] if seed is not None else "null"
                 raise LLMProviderOutputError(
-                    "Runpod Parti seed response failed strict quality checks and generation fallback is disabled: "
+                    f"Runpod Parti model {selected_model} seed response failed strict quality checks and generation fallback is disabled: "
                     f"{seed_quality_issue} seed_preview={seed_preview}"
                 )
-        emit_agent_pipeline_event("default", "intent_parser", "completed", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "intent_parser", "completed", details=adapter_details)
 
-        emit_agent_pipeline_event("default", "requirements", "started", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "requirements", "started", details=adapter_details)
         prompt_lower = user_prompt.lower()
         title = "Battery Environmental Sensor Dashboard"
         category = "IoT"
@@ -1355,13 +1376,13 @@ class HardwarePipelineOrchestrator:
             ],
             missing_info=[],
         )
-        emit_agent_pipeline_event("default", "requirements", "completed", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "requirements", "completed", details=adapter_details)
 
-        emit_agent_pipeline_event("default", "system_architecture", "started", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "system_architecture", "started", details=adapter_details)
         system_architecture = build_default_system_architecture(overview, requirements)
-        emit_agent_pipeline_event("default", "system_architecture", "completed", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "system_architecture", "completed", details=adapter_details)
 
-        emit_agent_pipeline_event("default", "component_selection", "started", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "component_selection", "started", details=adapter_details)
         components = [
             self._component_from_template(
                 ref_des="U1",
@@ -1410,7 +1431,7 @@ class HardwarePipelineOrchestrator:
         )
         emit_agent_pipeline_event("default", "component_selection", "completed", details={"component_count": len(components)})
 
-        emit_agent_pipeline_event("default", "wiring_netlist", "started", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "wiring_netlist", "started", details=adapter_details)
         nets = [
             ConnectionNet(
                 net_id="NET_GND",
@@ -1511,7 +1532,7 @@ class HardwarePipelineOrchestrator:
         ]
         emit_agent_pipeline_event("default", "wiring_netlist", "completed", details={"net_count": len(nets)})
 
-        emit_agent_pipeline_event("default", "validation_repair", "started", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "validation_repair", "started", details=adapter_details)
         validation_issues = validate_circuit(components, nets, requirements)
         validation_issues.append(ValidationIssue(
             severity="INFO",
@@ -1526,7 +1547,7 @@ class HardwarePipelineOrchestrator:
             details={"issue_count": len(validation_issues)},
         )
 
-        emit_agent_pipeline_event("default", "bom", "started", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "bom", "started", details=adapter_details)
         emit_agent_pipeline_event("default", "bom", "completed", details={"estimated_cost": overview.estimated_cost})
 
         assembly = [
@@ -1558,7 +1579,7 @@ class HardwarePipelineOrchestrator:
             ),
         ]
 
-        emit_agent_pipeline_event("default", "mechanical_fabrication", "started", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "mechanical_fabrication", "started", details=adapter_details)
         mechanical = MechanicalNotes(
             enclosure_type="3D Printed handheld sensor enclosure",
             mounting_guidance="Use M2.5 standoffs for the ESP32 and display, isolate the LiPo in a rear pocket, and keep sensor vent slots on the side wall.",
@@ -1582,15 +1603,15 @@ class HardwarePipelineOrchestrator:
             ],
             manufacturability_rating="Easy",
         )
-        emit_agent_pipeline_event("default", "mechanical_fabrication", "completed", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "mechanical_fabrication", "completed", details=adapter_details)
 
-        emit_agent_pipeline_event("default", "assembly", "started", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "assembly", "started", details=adapter_details)
         emit_agent_pipeline_event("default", "assembly", "completed", details={"step_count": len(assembly)})
 
         validation_summary = build_validation_summary(validation_issues)
 
-        emit_agent_pipeline_event("default", "package_project", "started", details={"adapter": "parti-base-v1"})
-        project_ir = HardwareIR(
+        emit_agent_pipeline_event("default", "package_project", "started", details=adapter_details)
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
@@ -1621,7 +1642,8 @@ class HardwarePipelineOrchestrator:
                 "pipeline": "runpod parti seed + deterministic catalog repair",
                 "parti_seed": seed,
                 "parti_seed_error": seed_error,
-                "parti_adapter": "parti-base-v1",
+                "parti_adapter": parti_model.adapter_version,
+                "parti_model": selected_model,
                 "schematic": {
                     "canvas": {"width": 1180, "height": 760},
                     "placements": {
@@ -1643,7 +1665,7 @@ class HardwarePipelineOrchestrator:
 
         project_ir = build_mechanical_render_data(project_ir)
         self.save_project_to_db(user_prompt, project_ir)
-        emit_agent_pipeline_event("default", "package_project", "completed", details={"adapter": "parti-base-v1"})
+        emit_agent_pipeline_event("default", "package_project", "completed", details=adapter_details)
         return project_ir
 
     def _generate_staged_project(
@@ -1653,7 +1675,7 @@ class HardwarePipelineOrchestrator:
         image_bytes: Optional[bytes],
         image_mime_type: Optional[str],
         model_validation: LLMProviderValidation,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         """Run the default workflow as durable, dependency-aware artifact stages."""
 
         metadata = self._active_generation_metadata
@@ -1796,7 +1818,7 @@ class HardwarePipelineOrchestrator:
 
     def _generate_cad_stage(
         self,
-        project: HardwareIR,
+        project: HardwareIntermediateRepresentation,
         metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
         ensure_native_cad_model(
@@ -2060,7 +2082,7 @@ class HardwarePipelineOrchestrator:
         stage_run: GenerationStageRun,
         *,
         model_validation: LLMProviderValidation,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         overview = stage_run.output("intent_parser", ProjectOverview)
         requirements = stage_run.output("requirements", FunctionalRequirements)
         architecture = stage_run.output("system_architecture", SystemArchitecture)
@@ -2124,7 +2146,7 @@ class HardwarePipelineOrchestrator:
                 description=str((root_failure.error or {}).get("message") or "Generation failed."),
                 troubleshooting="Retry the failed generation stage or review the provider logs.",
             ))
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             overview=overview,
             requirements=requirements,
             system_architecture=architecture,
@@ -2217,8 +2239,8 @@ class HardwarePipelineOrchestrator:
             return "partial"
         return "draft"
 
-    def save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
-        """Saves a successfully generated HardwareIR to the configured database."""
+    def save_project_to_db(self, prompt: str, ir: HardwareIntermediateRepresentation) -> str:
+        """Saves a successfully generated HardwareIntermediateRepresentation to the configured database."""
         ensure_agent_pipeline_active()
         generation_metadata = self._active_generation_metadata or {}
         project_id = canonical_project_uuid(
@@ -2282,7 +2304,7 @@ class HardwarePipelineOrchestrator:
             logger.error(f"Failed to save project to database: {e}")
             return ""
 
-    def _generate_simulated_project(self, prompt: str, has_image: bool = False) -> HardwareIR:
+    def _generate_simulated_project(self, prompt: str, has_image: bool = False) -> HardwareIntermediateRepresentation:
         """High-fidelity, deterministic simulated generator used as fallback when live LLM generation is unavailable."""
         logger.info(f"Generating simulated project package for: '{prompt}'")
         
@@ -2298,7 +2320,7 @@ class HardwarePipelineOrchestrator:
         else:
             return self._load_simulated_smart_lock_project(prompt)
 
-    def _load_simulated_test_tube_project(self, prompt: str) -> HardwareIR:
+    def _load_simulated_test_tube_project(self, prompt: str) -> HardwareIntermediateRepresentation:
         """Provide a safe low-voltage test-tube monitor fixture for CLI smoke tests."""
         overview = ProjectOverview(
             title="Test Tube Monitor",
@@ -2359,7 +2381,7 @@ class HardwarePipelineOrchestrator:
             render_dimensions=MechanicalVector3(x_mm=30, y_mm=30, z_mm=100),
         )
         validation_issues = validate_circuit(components, [], requirements)
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
@@ -2382,7 +2404,7 @@ class HardwarePipelineOrchestrator:
         self.save_project_to_db(prompt, project_ir)
         return project_ir
 
-    def _generate_failed_project(self, error: Exception) -> HardwareIR:
+    def _generate_failed_project(self, error: Exception) -> HardwareIntermediateRepresentation:
         """Return an empty, invalid project that preserves a pipeline failure for callers."""
         error_type = error.__class__.__name__
         error_message = str(error).strip() or error_type
@@ -2392,7 +2414,7 @@ class HardwarePipelineOrchestrator:
             description=error_message,
             troubleshooting="Retry generation or review the configured provider and model logs.",
         )
-        return HardwareIR(
+        return HardwareIntermediateRepresentation(
             assembly_metadata={
                 "status": "failed",
                 "generation_error": {
@@ -2405,7 +2427,7 @@ class HardwarePipelineOrchestrator:
             is_valid=False,
         )
 
-    def _load_simulated_mp3_player_project(self, prompt: str) -> HardwareIR:
+    def _load_simulated_mp3_player_project(self, prompt: str) -> HardwareIntermediateRepresentation:
         """Reference-style Forma project used for prompt+image MP3 player examples."""
         def pin(pin_id: str, name: str, pin_type: str, voltage: Optional[float] = None) -> PinDefinition:
             return PinDefinition(pin_id=pin_id, name=name, pin_type=pin_type, voltage=voltage, description=name)
@@ -2670,7 +2692,7 @@ class HardwarePipelineOrchestrator:
         )
         validation_issues = validate_circuit(components, nets, requirements)
         validation_summary = build_validation_summary(validation_issues)
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
@@ -2707,7 +2729,7 @@ class HardwarePipelineOrchestrator:
         self.save_project_to_db(prompt, project_ir)
         return project_ir
 
-    def _load_simulated_watering_project(self, prompt: str) -> HardwareIR:
+    def _load_simulated_watering_project(self, prompt: str) -> HardwareIntermediateRepresentation:
         overview = ProjectOverview(
             title="Auto-Grow Plant Moisture Monitor & Watering System",
             description=f"An automated soil-sensing irrigation and environment dashboard compiled for: '{prompt}'",
@@ -2940,7 +2962,7 @@ class HardwarePipelineOrchestrator:
         buses = extract_buses(nets)
         current_draw = estimate_current_draw(components)
 
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
@@ -2985,7 +3007,7 @@ class HardwarePipelineOrchestrator:
         self.save_project_to_db(prompt, project_ir)
         return project_ir
 
-    def _load_simulated_thermostat_project(self, prompt: str) -> HardwareIR:
+    def _load_simulated_thermostat_project(self, prompt: str) -> HardwareIntermediateRepresentation:
         overview = ProjectOverview(
             title="Smart Nest-Style Environmental Thermostat Controller",
             description=f"Intelligent wall-mounted environment controller with climate regulation compiled for: '{prompt}'",
@@ -3205,7 +3227,7 @@ class HardwarePipelineOrchestrator:
         buses = extract_buses(nets)
         current_draw = estimate_current_draw(components)
 
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
@@ -3250,7 +3272,7 @@ class HardwarePipelineOrchestrator:
         self.save_project_to_db(prompt, project_ir)
         return project_ir
 
-    def _load_simulated_smart_lock_project(self, prompt: str) -> HardwareIR:
+    def _load_simulated_smart_lock_project(self, prompt: str) -> HardwareIntermediateRepresentation:
         overview = ProjectOverview(
             title="Biometric & Keyless Bluetooth Smart Deadbolt",
             description=f"A smart lock mechanism utilizing servos, status indicator LEDs, and low power bluetooth.",
@@ -3455,7 +3477,7 @@ class HardwarePipelineOrchestrator:
         buses = extract_buses(nets)
         current_draw = estimate_current_draw(components)
 
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,

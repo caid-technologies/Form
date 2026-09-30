@@ -196,44 +196,6 @@ class OpenCodeBridgeTests(unittest.IsolatedAsyncioTestCase):
             response = asyncio.run(handle_opencode_mcp_json_rpc(McpJsonRpcRequest.model_validate({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "forma.generate_project", "arguments": {}}}), capability))
         self.assertEqual("authorization_required", response["error"]["data"]["code"])
 
-    def test_connector_unavailable_respects_session_freshness(self) -> None:
-        now = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
-        fresh = "2026-09-12T11:58:00.000001Z"
-        boundary = "2026-09-12T11:58:00Z"
-        stale = "2026-09-12T11:00:00+00:00"
-        cases = (
-            ("new session", now.isoformat(), None, OpenCodeSessionStatus.ACTIVE, False),
-            ("missing heartbeat within grace", fresh, None, OpenCodeSessionStatus.ACTIVE, False),
-            ("missing heartbeat at boundary", boundary, None, OpenCodeSessionStatus.ACTIVE, True),
-            ("missing heartbeat past grace", stale, None, OpenCodeSessionStatus.ACTIVE, True),
-            ("old creation recent heartbeat", stale, fresh, OpenCodeSessionStatus.ACTIVE, False),
-            ("heartbeat at boundary", stale, boundary, OpenCodeSessionStatus.ACTIVE, True),
-            ("stale heartbeat", stale, stale, OpenCodeSessionStatus.ACTIVE, True),
-            ("malformed heartbeat", stale, "invalid", OpenCodeSessionStatus.ACTIVE, False),
-            ("malformed creation", "invalid", None, OpenCodeSessionStatus.ACTIVE, False),
-            ("cancelled without heartbeat", stale, None, OpenCodeSessionStatus.CANCELLED, False),
-            ("completed without heartbeat", stale, None, OpenCodeSessionStatus.COMPLETED, False),
-            ("cancelled stale heartbeat", stale, stale, OpenCodeSessionStatus.CANCELLED, False),
-            ("completed stale heartbeat", stale, stale, OpenCodeSessionStatus.COMPLETED, False),
-        )
-        for name, created_at, heartbeat, status, unavailable in cases:
-            with self.subTest(name=name):
-                session = StoredSession(
-                    session_id="session", connector_id="mini", owner_user_id="user", project_id=str(uuid4()),
-                    status=status, capability_nonce="nonce", created_at=created_at, updated_at=now.isoformat(),
-                    last_heartbeat_at=heartbeat, next_event_sequence=1,
-                )
-                with patch("apps.api.opencode_api.datetime", new=Mock(wraps=datetime)) as clock, patch("apps.api.opencode_api._store_event") as store_event:
-                    clock.now.return_value = now
-                    _record_connector_unavailable_if_stale(session)
-                if unavailable:
-                    store_event.assert_called_once_with(
-                        session,
-                        ConnectorEventInput(event_id="connector_unavailable_session", kind=OpenCodeEventKind.CONNECTOR_UNAVAILABLE.value),
-                    )
-                else:
-                    store_event.assert_not_called()
-
     def test_list_events_for_new_session_does_not_record_connector_unavailable(self) -> None:
         store = OpenCodeStore(":memory:")
         try:

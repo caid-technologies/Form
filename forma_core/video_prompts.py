@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.objects import namespace_payload
 
 
@@ -129,7 +129,7 @@ def _assembly_details(payload: Dict[str, Any]) -> List[str]:
 
 
 def generate_image_to_video_prompt_from_namespaces(
-    ir: HardwareIR | Dict[str, Any],
+    ir: HardwareIntermediateRepresentation | Dict[str, Any],
     *,
     namespaces: Optional[List[str]] = None,
 ) -> Dict[str, Any]:

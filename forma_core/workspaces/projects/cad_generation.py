@@ -1,4 +1,4 @@
-"""Native CAD generation from agent-authored HardwareIR."""
+"""Native CAD generation from agent-authored HardwareIntermediateRepresentation."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from forma_core.workspaces.projects.design_lifecycle import (
     stable_artifact_id,
 )
 from forma_core.workspaces.projects.generation_mode import is_progressive_generation
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.state import ProjectArtifact
 
 
@@ -49,7 +49,7 @@ def _positive(value: Any, default: float) -> float:
     return number if number > 0 else default
 
 
-def _project_dimensions(project: HardwareIR) -> tuple[float, float, float]:
+def _project_dimensions(project: HardwareIntermediateRepresentation) -> tuple[float, float, float]:
     mechanical = project.mechanical
     render_dimensions = mechanical.render_dimensions if mechanical is not None else None
     if render_dimensions is not None:
@@ -80,7 +80,7 @@ def _project_dimensions(project: HardwareIR) -> tuple[float, float, float]:
     return 80.0, 60.0, 30.0
 
 
-def _placement_payload(project: HardwareIR) -> list[dict[str, Any]]:
+def _placement_payload(project: HardwareIntermediateRepresentation) -> list[dict[str, Any]]:
     mechanical = project.mechanical
     if mechanical is None:
         return []
@@ -101,7 +101,7 @@ def _placement_payload(project: HardwareIR) -> list[dict[str, Any]]:
 
 
 
-def _motion_intent_payload(project: HardwareIR) -> list[dict[str, Any]]:
+def _motion_intent_payload(project: HardwareIntermediateRepresentation) -> list[dict[str, Any]]:
     """Map Forma authoring intent into the rigid OpenCAD joint contract.
 
     Forma owns component/reference intent. OpenCAD owns joint validation and
@@ -146,7 +146,7 @@ def _motion_intent_payload(project: HardwareIR) -> list[dict[str, Any]]:
     return resolved
 
 
-def _cad_source(project: HardwareIR) -> str:
+def _cad_source(project: HardwareIntermediateRepresentation) -> str:
     if project.mechanical and project.mechanical.mechanism_benchmark is not None:
         from forma_core.workspaces.projects.mechanism_benchmarks import mechanism_cad_source
         return mechanism_cad_source(project.mechanical.mechanism_benchmark)
@@ -547,13 +547,13 @@ def _has_authoritative_cad(value: Any) -> bool:
     return True
 
 
-def _cad_is_applicable(project: HardwareIR) -> bool:
+def _cad_is_applicable(project: HardwareIntermediateRepresentation) -> bool:
     if project.mechanical is None:
         return False
     return bool(project.mechanical.mechanism_benchmark or project.mechanical.cad_operations or project.mechanical.component_placements or project.components or project.mechanical.render_dimensions)
 
 
-def _set_cad_status(project: HardwareIR, *, status: str, required: bool, error: str | None = None) -> None:
+def _set_cad_status(project: HardwareIntermediateRepresentation, *, status: str, required: bool, error: str | None = None) -> None:
     metadata = dict(project.assembly_metadata or {})
     cad = project.cad_model if isinstance(project.cad_model, dict) else {}
     record: dict[str, Any] = {
@@ -567,13 +567,13 @@ def _set_cad_status(project: HardwareIR, *, status: str, required: bool, error: 
     project.assembly_metadata = metadata
 
 
-def _visual_gate_active(project: HardwareIR) -> bool:
+def _visual_gate_active(project: HardwareIntermediateRepresentation) -> bool:
     """Return whether the project explicitly selected progressive generation."""
 
     return is_progressive_generation(project)
 
 
-def _prepare_visual_gate(project: HardwareIR):
+def _prepare_visual_gate(project: HardwareIntermediateRepresentation):
     metadata = project.assembly_metadata or {}
     raw_policy = metadata.get("visual_approval_policy")
     policy = None
@@ -611,7 +611,7 @@ model
 
 
 def _component_cad_artifacts(
-    project: HardwareIR,
+    project: HardwareIntermediateRepresentation,
     *,
     root: Path,
     adapter: Path,
@@ -701,7 +701,7 @@ def _component_cad_artifacts(
 
 
 def ensure_native_cad_model(
-    project: HardwareIR,
+    project: HardwareIntermediateRepresentation,
     *,
     project_id: str | None,
     required: bool,
@@ -805,7 +805,7 @@ def ensure_native_cad_model(
         }
         project.cad_model = {
             "adapter": CAD_ADAPTER_NAME,
-            "source": "Native OpenCAD generated from agent-authored HardwareIR",
+            "source": "Native OpenCAD generated from agent-authored HardwareIntermediateRepresentation",
             "authoring_agent": authoring_agent,
             "authoring_mode": "component-cad-then-assembly" if progressive else "hardware-ir-to-opencad",
             "generated": True,
@@ -908,7 +908,7 @@ def ensure_native_cad_model(
 
 
 def resume_native_cad_after_visual_decision(
-    project: HardwareIR,
+    project: HardwareIntermediateRepresentation,
     *,
     project_id: str | None,
     approved: bool,
@@ -932,7 +932,7 @@ def resume_native_cad_after_visual_decision(
     )
 
 
-def cad_project_artifact(project: HardwareIR, project_id: str) -> ProjectArtifact | None:
+def cad_project_artifact(project: HardwareIntermediateRepresentation, project_id: str) -> ProjectArtifact | None:
     """Return the canonical revision artifact for a generated CAD model."""
     cad = project.cad_model
     if not isinstance(cad, dict) or str(cad.get("adapter") or "").strip().lower() != CAD_ADAPTER_NAME:
@@ -956,7 +956,7 @@ def cad_project_artifact(project: HardwareIR, project_id: str) -> ProjectArtifac
     )
 
 
-def mesh_project_artifact(project: HardwareIR, project_id: str) -> ProjectArtifact | None:
+def mesh_project_artifact(project: HardwareIntermediateRepresentation, project_id: str) -> ProjectArtifact | None:
     """Return the printable STL preview as a downstream fabrication input."""
     cad = project.cad_model
     if not isinstance(cad, dict):

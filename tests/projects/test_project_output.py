@@ -4,14 +4,14 @@ import unittest
 
 from forma_core.image_providers import GeneratedImage
 from forma_core.agents.orchestrator import build_mechanical_render_data
-from forma_core.workspaces.projects.models import ComponentInstance, HardwareIR, MechanicalNotes, ProjectOverview
+from forma_core.workspaces.projects.models import ComponentInstance, HardwareIntermediateRepresentation, MechanicalNotes, ProjectOverview
 from forma_core.workspaces.projects.objects import namespace_payload
 from forma_core.workspaces.projects.output import attach_hardware_reference_image, attach_product_image
 
 
 class ProjectOutputTests(unittest.TestCase):
     def test_mechanical_render_data_does_not_create_a_cad_model(self) -> None:
-        ir = HardwareIR(
+        ir = HardwareIntermediateRepresentation(
             components=[
                 ComponentInstance(
                     ref_des="U1",
@@ -33,15 +33,15 @@ class ProjectOutputTests(unittest.TestCase):
 
     def test_cad_model_survives_hardware_ir_round_trip_and_mechanical_namespace_projection(self) -> None:
         cad_model = {"path": "/srv/models/enclosure.step", "adapter": "forma-opencad"}
-        ir = HardwareIR(cad_model=cad_model)
+        ir = HardwareIntermediateRepresentation(cad_model=cad_model)
 
-        restored = HardwareIR.model_validate(ir.model_dump(mode="json"))
+        restored = HardwareIntermediateRepresentation.model_validate(ir.model_dump(mode="json"))
 
         self.assertEqual(cad_model, restored.cad_model)
         self.assertEqual(cad_model, namespace_payload(restored, "product.mech")["cad_model"])
 
     def test_mechanical_namespace_does_not_promote_legacy_cad_model_fields(self) -> None:
-        ir = HardwareIR.model_validate({
+        ir = HardwareIntermediateRepresentation.model_validate({
             "mechanical": {
                 "cad_model": {"path": "/srv/models/legacy.step"},
                 "enclosure_type": "3D Printed",
@@ -55,7 +55,7 @@ class ProjectOutputTests(unittest.TestCase):
         self.assertIsNone(namespace_payload(ir, "product.mech")["cad_model"])
 
     def test_generated_image_is_attached_inline_when_storage_skips_upload(self) -> None:
-        ir = HardwareIR(
+        ir = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Test project",
                 description="A test",
@@ -105,7 +105,7 @@ class ProjectOutputTests(unittest.TestCase):
         self.assertEqual(1, metadata["product_visual_sequence_count"])
 
     def test_hardware_reference_is_kept_inline_when_storage_skips_upload(self) -> None:
-        ir = HardwareIR(
+        ir = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Test project",
                 description="A test",
@@ -127,7 +127,7 @@ class ProjectOutputTests(unittest.TestCase):
         self.assertEqual("prompt_image", ir.assembly_metadata["input_mode"])
 
     def test_hardware_reference_does_not_replace_an_existing_stored_image(self) -> None:
-        ir = HardwareIR(assembly_metadata={"reference_image_url": "https://example.test/ref.png"})
+        ir = HardwareIntermediateRepresentation(assembly_metadata={"reference_image_url": "https://example.test/ref.png"})
 
         attach_hardware_reference_image(ir, "data:image/png;base64,aW1hZ2U=")
 

@@ -37,7 +37,7 @@ from forma_core.workers.generation import (
     GenerationEngine,
     GenerationWorker,
     GenerationWorkerPayload,
-    HardwareIRGenerationEngine,
+    HardwareIntermediateRepresentationGenerationEngine,
     build_generation_draft,
 )
 from forma_core.workers.validation import (
@@ -73,7 +73,7 @@ __all__ = [
     "GenerationEngine",
     "GenerationWorker",
     "GenerationWorkerPayload",
-    "HardwareIRGenerationEngine",
+    "HardwareIntermediateRepresentationGenerationEngine",
     "InlineImageInspectionEngine",
     "REVERSE_ENGINEERING_CAPABILITY_ID",
     "REVERSE_ENGINEERING_INPUT_VERSION",

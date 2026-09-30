@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to Forma.
 
-Forma is an AI-native hardware design platform that converts natural-language requirements and optional reference images into structured Hardware IR, bills of materials, wiring diagrams, validation results, assembly instructions, and visual representations.
+Forma is an AI-native hardware design platform that converts natural-language requirements and optional reference images into structured Hardware Intermediate Representation, bills of materials, wiring diagrams, validation results, assembly instructions, and visual representations.
 
 The project is currently an alpha-stage research prototype. Contributions should prioritize correctness, maintainability, testability, and safe low-voltage hardware design.
 
@@ -14,7 +14,7 @@ You can contribute by:
 * Improving documentation
 * Adding or improving tests
 * Improving the frontend experience
-* Extending Hardware IR models
+* Extending Hardware Intermediate Representation models
 * Improving electrical validation
 * Adding supported LLM or image providers
 * Improving project iteration and self-correction
@@ -254,7 +254,7 @@ Public APIs should use explicit input and return types.
 Example:
 
 ```python
-def validate_project(project: HardwareIR) -> list[ValidationIssue]:
+def validate_project(project: HardwareIntermediateRepresentation) -> list[ValidationIssue]:
     """Validate a hardware project and return discovered safety issues."""
 ```
 
@@ -272,9 +272,9 @@ Frontend contributions should:
 
 UI changes should include screenshots or a short recording in the pull request.
 
-### Hardware IR and APIs
+### Hardware Intermediate Representation and APIs
 
-Changes to Hardware IR models or API responses require additional care.
+Changes to Hardware Intermediate Representation models or API responses require additional care.
 
 When modifying a schema:
 
@@ -340,7 +340,7 @@ python -m build
 
 Add or update tests when changing:
 
-* Hardware IR models
+* Hardware Intermediate Representation models
 * Validation rules
 * Project iteration
 * Self-correction behavior

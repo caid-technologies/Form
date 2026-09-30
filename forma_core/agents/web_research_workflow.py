@@ -37,7 +37,7 @@ from forma_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
     FunctionalRequirements,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     MechanicalNotes,
     PinMappingEntry,
     ProjectOverview,
@@ -147,7 +147,7 @@ WEB_GENERATION_STAGE_SPECS = [
 
 
 class WebResearchHardwarePipeline:
-    """Internet-researched hardware workflow that keeps the same HardwareIR output contract."""
+    """Internet-researched hardware workflow that keeps the same HardwareIntermediateRepresentation output contract."""
 
     workflow_id = "web_research"
 
@@ -278,7 +278,7 @@ class WebResearchHardwarePipeline:
         image_bytes: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
         generation_metadata: Optional[Dict[str, Any]] = None,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         self.validate_configured_model()
         self._active_generation_metadata = {
             key: value
@@ -435,7 +435,7 @@ class WebResearchHardwarePipeline:
 
         logger.info("Packaging web research project artifacts...")
         with agent_pipeline_step(self.workflow_id, "package_project"):
-            project_ir = HardwareIR(
+            project_ir = HardwareIntermediateRepresentation(
                 hardware_ir_version="0.1",
                 overview=plan.overview,
                 requirements=plan.requirements,
@@ -500,7 +500,7 @@ class WebResearchHardwarePipeline:
         image_bytes: Optional[bytes],
         image_mime_type: Optional[str],
         model_validation: LLMProviderValidation,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         """Run artifact-producing stages independently and checkpoint each result."""
 
         metadata = self._active_generation_metadata
@@ -657,7 +657,7 @@ class WebResearchHardwarePipeline:
 
     def _generate_cad_stage(
         self,
-        project: HardwareIR,
+        project: HardwareIntermediateRepresentation,
         metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
         ensure_native_cad_model(
@@ -681,7 +681,7 @@ class WebResearchHardwarePipeline:
         *,
         user_prompt: str,
         model_validation: LLMProviderValidation,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         plan = stage_run.output("web_architect", WebProjectPlan)
         selection = stage_run.output("web_component_sourcing", WebComponentSelection)
         components = expand_component_instances(selection.components) if selection is not None else []
@@ -734,7 +734,7 @@ class WebResearchHardwarePipeline:
             for record in stage_run.records.values()
             if record.status.value in {"failed", "blocked"}
         ]
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             overview=plan.overview if plan is not None else None,
             requirements=plan.requirements if plan is not None else None,
             system_architecture=plan.system_architecture if plan is not None else None,
@@ -1172,7 +1172,7 @@ class WebResearchHardwarePipeline:
             )
         return issues
 
-    def _save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
+    def _save_project_to_db(self, prompt: str, ir: HardwareIntermediateRepresentation) -> str:
         ensure_agent_pipeline_active()
         project_id = canonical_project_uuid((ir.assembly_metadata or {}).get("project_id"))
         generation_metadata = self._active_generation_metadata or {}

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from apps.api.auth import UserContext, require_user_context
 from forma_core.config.compatibility import (
-    UnsupportedHardwareIRVersion,
+    UnsupportedHardwareIntermediateRepresentationVersion,
     ensure_supported_hardware_ir_version,
     hosted_compatibility_metadata,
 )
@@ -286,7 +286,7 @@ async def push_cli_project(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="CLI project artifact storage is not configured.",
             )
-    except UnsupportedHardwareIRVersion as exc:
+    except UnsupportedHardwareIntermediateRepresentationVersion as exc:
         raise HTTPException(
             status_code=status.HTTP_426_UPGRADE_REQUIRED,
             detail={
@@ -334,7 +334,7 @@ async def deliver_cli_project(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="CLI project artifact storage is not configured.",
             )
-    except UnsupportedHardwareIRVersion as exc:
+    except UnsupportedHardwareIntermediateRepresentationVersion as exc:
         raise HTTPException(
             status_code=status.HTTP_426_UPGRADE_REQUIRED,
             detail={

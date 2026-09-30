@@ -16,7 +16,7 @@ from forma_core import database
 from forma_core.persistence.images import hydrate_image_storage_metadata
 from forma_core.persistence.repositories.supabase import SupabaseRepository
 from forma_core.workspaces.design_briefs import DesignBriefCreate
-from forma_core.workspaces.projects.models import HardwareIR, ProjectOverview
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, ProjectOverview
 from forma_core.workspaces.projects.state import ProjectRevisionDraft, ProjectStateService
 from tests.persistence.test_design_briefs import sqlite_repository
 
@@ -42,7 +42,7 @@ class ProjectVersionHistoryTests(unittest.TestCase):
         self.url = f"/projects/{self.project_id}/history"
 
     def save(self, title, *, cad=None, source=None):
-        ir = HardwareIR(overview=ProjectOverview(title=title, description=title, difficulty="Beginner", category="Mechanical"), cad_model=cad)
+        ir = HardwareIntermediateRepresentation(overview=ProjectOverview(title=title, description=title, difficulty="Beginner", category="Mechanical"), cad_model=cad)
         draft = ProjectRevisionDraft(state=ir)
         kwargs = dict(project_id=self.project_id, owner_user_id=self.owner, source_job_id=source or f"update-{len(self.revisions) + 1}")
         if not self.revisions:

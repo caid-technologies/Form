@@ -18,7 +18,7 @@ from forma_core.workspaces.projects.design_lifecycle import (
     load_design_lifecycle,
     register_system_render,
 )
-from forma_core.workspaces.projects.models import HardwareIR, SystemArchitecture, SystemNode
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, SystemArchitecture, SystemNode
 
 
 OWNER = "progressive-review-user"
@@ -50,8 +50,8 @@ def sqlite_repository() -> Iterator[None]:
             provider.dispose()
 
 
-def progressive_project() -> HardwareIR:
-    ir = HardwareIR(
+def progressive_project() -> HardwareIntermediateRepresentation:
+    ir = HardwareIntermediateRepresentation(
         system_architecture=SystemArchitecture(
             summary="Small controller",
             root=SystemNode(

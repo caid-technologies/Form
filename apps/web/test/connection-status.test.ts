@@ -108,7 +108,7 @@ test("a dropped API connection is not treated as healthy", () => {
   assert.equal(badge.reason, "disconnected");
 });
 
-test("an active OpenCode authoring session is distinct from a stable ready badge", () => {
+test("an active FormaAgent authoring session is distinct from a stable ready badge", () => {
   const badge = workspaceStatusBadge({
     connection: "connected",
     agent: { status: "success", content: "Project is ready." },

@@ -12,7 +12,7 @@ from forma_core.jobs.source_usage import (
     source_usage_for_workflow,
 )
 from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.user_integrations import ResolvedIntegrationSettings
 
 
@@ -87,7 +87,7 @@ def generate_project_with_workflow(
     settings: Optional[ResolvedIntegrationSettings] = None,
     generation_metadata: Optional[Dict[str, Any]] = None,
     persist_project: bool = True,
-) -> HardwareIR:
+) -> HardwareIntermediateRepresentation:
     normalized = normalize_workflow_id(workflow_id)
     source_usage = source_usage_for_workflow(normalized, external_provider=external_source_provider)
     if normalized == WEB_RESEARCH_WORKFLOW_ID:

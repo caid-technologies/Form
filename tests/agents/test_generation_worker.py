@@ -20,7 +20,7 @@ from forma_core.workers import (
     GENERATION_WORKER_ID,
     WORKER_CONTRACT_VERSION,
     GenerationWorker,
-    HardwareIRGenerationEngine,
+    HardwareIntermediateRepresentationGenerationEngine,
     OrchestrationTaskStatus,
     WorkerOrchestrator,
     WorkerPlanStatus,
@@ -44,7 +44,7 @@ from forma_core.workspaces.projects.models import (
     BusConnection,
     ComponentInstance,
     ConnectionNet,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     PinReference,
     PowerRail,
     ProjectOverview,
@@ -83,7 +83,7 @@ class FakeGenerationEngine:
             category="Microcontroller",
             rationale="Provides processing and connectivity required by the frozen brief.",
         )
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Frozen Brief Controller",
                 description=design_brief.summary,
@@ -130,14 +130,14 @@ class ProviderDeadlineGenerationEngine(FakeGenerationEngine):
         raise ProviderDeadlineError("504 DEADLINE_EXCEEDED: Deadline expired before operation could complete.")
 
 
-class ObservableGenerationEngine(HardwareIRGenerationEngine):
+class ObservableGenerationEngine(HardwareIntermediateRepresentationGenerationEngine):
     def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
         emit_agent_pipeline_event(None, "intent_parser", "started")
         emit_agent_pipeline_event(None, "intent_parser", "completed")
         return FakeGenerationEngine().generate(design_brief)
 
 
-class CancellableGenerationEngine(HardwareIRGenerationEngine):
+class CancellableGenerationEngine(HardwareIntermediateRepresentationGenerationEngine):
     def __init__(self, cancel: Any) -> None:
         super().__init__()
         self.cancel = cancel
@@ -149,7 +149,7 @@ class CancellableGenerationEngine(HardwareIRGenerationEngine):
         return FakeGenerationEngine().generate(design_brief)
 
 
-class RetryableStagedGenerationEngine(HardwareIRGenerationEngine):
+class RetryableStagedGenerationEngine(HardwareIntermediateRepresentationGenerationEngine):
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
@@ -231,7 +231,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_hardware_engine_generates_a_product_image_by_default(self) -> None:
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Vertex Image Project",
                 description="A project that needs a product render.",
@@ -246,7 +246,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         ):
             orchestrator_type.return_value.generate_project.return_value = state
 
-            draft = HardwareIRGenerationEngine().generate(self.brief)
+            draft = HardwareIntermediateRepresentationGenerationEngine().generate(self.brief)
 
         attach_image.assert_called_once()
         self.assertTrue(attach_image.call_args.kwargs["generate_image"])
@@ -267,7 +267,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 )
             ]
         })
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Reference Image Project",
                 description="A project started from a hardware photo.",
@@ -282,7 +282,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             patch("forma_core.workers.generation.attach_hardware_reference_image") as attach_reference,
         ):
             orchestrator_type.return_value.generate_project.return_value = state
-            HardwareIRGenerationEngine().generate(brief)
+            HardwareIntermediateRepresentationGenerationEngine().generate(brief)
 
         attach_reference.assert_called_once()
         self.assertEqual(state, attach_reference.call_args.args[0])
@@ -295,7 +295,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("image/png", generate_project.call_args.kwargs["image_mime_type"])
 
     def test_hardware_engine_returns_contained_staged_root_failure(self) -> None:
-        state = HardwareIR(assembly_metadata={
+        state = HardwareIntermediateRepresentation(assembly_metadata={
             "generation_status": "failed",
             "status": "failed",
             "generation_error": {"type": "TimeoutError", "message": "architecture timed out"},
@@ -307,7 +307,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         ):
             orchestrator_type.return_value.generate_project.return_value = state
 
-            draft = HardwareIRGenerationEngine().generate(self.brief)
+            draft = HardwareIntermediateRepresentationGenerationEngine().generate(self.brief)
 
         self.assertEqual("failed", draft.state.assembly_metadata["generation_status"])
 
@@ -320,7 +320,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             rationale="Provides processing and connectivity.",
         )
         with self.assertRaisesRegex(ValueError, "unknown component instance 'R2'"):
-            HardwareIR(
+            HardwareIntermediateRepresentation(
                 components=[component],
                 nets=[
                     ConnectionNet(
@@ -369,7 +369,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             ),
         ]
         rails = extract_power_rails([component], nets)
-        state = HardwareIR(components=[component], nets=nets, power_rails=rails)
+        state = HardwareIntermediateRepresentation(components=[component], nets=nets, power_rails=rails)
 
         draft = build_generation_draft(self.brief, state)
 
@@ -387,7 +387,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             media_type="application/json",
             checksum="sha256:abc123",
         )
-        state = HardwareIR(assembly_metadata={
+        state = HardwareIntermediateRepresentation(assembly_metadata={
             "generation_run": {
                 "records": {
                     "web_architect": {
@@ -410,7 +410,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             category="Microcontroller",
             rationale="Provides processing and connectivity.",
         )
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             components=[component],
             power_rails=[
                 PowerRail(rail_id="RAIL_5V", voltage=5.0, max_current_capacity_ma=1000, source_component="U1"),
@@ -794,7 +794,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         pipeline = HardwarePipelineOrchestrator.__new__(HardwarePipelineOrchestrator)
         pipeline.persist_project = False
         pipeline._active_generation_metadata = {"project_id": str(self.project_id)}
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Boundary-only generation",
                 description="Must be persisted by ProjectStateService.",

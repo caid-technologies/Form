@@ -17,7 +17,7 @@ from forma_core.llm import (
     enforce_production_llm_preflight,
     resolve_llm_runtime_config,
 )
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.objects import (
     DEFAULT_PROJECT_NAMESPACES,
     attach_project_object_metadata,
@@ -84,12 +84,12 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def coerce_hardware_ir(value: HardwareIR | Dict[str, Any]) -> HardwareIR:
-    if isinstance(value, HardwareIR):
+def coerce_hardware_ir(value: HardwareIntermediateRepresentation | Dict[str, Any]) -> HardwareIntermediateRepresentation:
+    if isinstance(value, HardwareIntermediateRepresentation):
         return value.model_copy(deep=True)
     if isinstance(value, dict):
-        return HardwareIR.model_validate(value)
-    raise TypeError("current project must be a HardwareIR or hardware IR dictionary.")
+        return HardwareIntermediateRepresentation.model_validate(value)
+    raise TypeError("current project must be a HardwareIntermediateRepresentation or hardware intermediate representation dictionary.")
 
 
 def normalize_iteration_instruction(value: str) -> str:
@@ -99,7 +99,7 @@ def normalize_iteration_instruction(value: str) -> str:
     return instruction
 
 
-def _metadata_revision(ir: HardwareIR) -> int:
+def _metadata_revision(ir: HardwareIntermediateRepresentation) -> int:
     metadata = ir.assembly_metadata or {}
     raw_value = metadata.get("revision")
     try:
@@ -109,11 +109,11 @@ def _metadata_revision(ir: HardwareIR) -> int:
         return max(1, history_count)
 
 
-def next_revision_number(ir: HardwareIR) -> int:
+def next_revision_number(ir: HardwareIntermediateRepresentation) -> int:
     return _metadata_revision(ir) + 1
 
 
-def _project_id_from_metadata(ir: HardwareIR, override: Optional[str] = None) -> str:
+def _project_id_from_metadata(ir: HardwareIntermediateRepresentation, override: Optional[str] = None) -> str:
     value = override or (ir.assembly_metadata or {}).get("project_id")
     if value:
         try:
@@ -144,13 +144,13 @@ def _redact_context_value(value: Any, *, key: str = "", max_string_chars: int = 
     return value
 
 
-def compact_hardware_ir_for_iteration(ir: HardwareIR, *, max_string_chars: int = DEFAULT_CONTEXT_MAX_STRING_CHARS) -> Dict[str, Any]:
+def compact_hardware_ir_for_iteration(ir: HardwareIntermediateRepresentation, *, max_string_chars: int = DEFAULT_CONTEXT_MAX_STRING_CHARS) -> Dict[str, Any]:
     """Return an LLM-safe project context with large data URLs and huge fields compacted."""
     return _redact_context_value(ir.model_dump(mode="json", exclude_none=True), max_string_chars=max_string_chars)
 
 
 def build_iteration_prompt(
-    current_ir: HardwareIR,
+    current_ir: HardwareIntermediateRepresentation,
     instruction: str,
     *,
     original_prompt: Optional[str] = None,
@@ -178,8 +178,8 @@ def build_iteration_prompt(
             f"{json.dumps(namespace_payload(current_ir, normalized_namespace), indent=2, sort_keys=True)}\n"
         )
     return (
-        "You are Forma's project iteration engine. Revise an existing HardwareIR project.\n"
-        "Return one complete HardwareIR JSON document, not a patch and not markdown.\n"
+        "You are Forma's project iteration engine. Revise an existing Hardware Intermediate Representation project.\n"
+        "Return one complete Hardware Intermediate Representation JSON document, not a patch and not markdown.\n"
         "Preserve every part of the project that the instruction does not explicitly change.\n"
         "Keep the existing project_id, reference designators, and stable net IDs unless a requested change requires updates.\n"
         "If you add, remove, or replace components, update components, nets, buses, pin_mappings, power_rails, "
@@ -190,13 +190,13 @@ def build_iteration_prompt(
         f"Original prompt: {original_prompt or 'unknown'}\n"
         f"Iteration instruction: {instruction}\n\n"
         f"{namespace_block}"
-        "Current HardwareIR JSON:\n"
+        "Current HardwareIntermediateRepresentation JSON:\n"
         f"{json.dumps(compact_ir, indent=2, sort_keys=True)}"
     )
 
 
 def _append_history_entry(
-    ir: HardwareIR,
+    ir: HardwareIntermediateRepresentation,
     *,
     instruction: str,
     revision: int,
@@ -266,7 +266,7 @@ def _preserve_output_metadata(metadata: Dict[str, Any], base_metadata: Dict[str,
 
 def _namespace_versions_for_iteration(
     *,
-    base_ir: HardwareIR,
+    base_ir: HardwareIntermediateRepresentation,
     current_metadata: Dict[str, Any],
     revision: int,
     previous_revision: int,
@@ -302,9 +302,9 @@ def _namespace_versions_for_iteration(
 
 
 def _normalize_iteration_metadata(
-    ir: HardwareIR,
+    ir: HardwareIntermediateRepresentation,
     *,
-    base_ir: HardwareIR,
+    base_ir: HardwareIntermediateRepresentation,
     instruction: str,
     mode: str,
     provider_validation: LLMProviderValidation,
@@ -384,15 +384,15 @@ def _normalize_iteration_metadata(
 
 
 def finalize_project_iteration(
-    revised_ir: HardwareIR | Dict[str, Any],
+    revised_ir: HardwareIntermediateRepresentation | Dict[str, Any],
     *,
-    base_ir: HardwareIR | Dict[str, Any],
+    base_ir: HardwareIntermediateRepresentation | Dict[str, Any],
     instruction: str,
     provider_validation: LLMProviderValidation,
     project_id: Optional[str] = None,
     target_namespace: Optional[str] = None,
     mode: str = "llm",
-) -> HardwareIR:
+) -> HardwareIntermediateRepresentation:
     base = coerce_hardware_ir(base_ir)
     revised = coerce_hardware_ir(revised_ir)
     instruction = normalize_iteration_instruction(instruction)
@@ -433,13 +433,13 @@ def finalize_project_iteration(
 
 
 def build_metadata_only_iteration(
-    current_ir: HardwareIR | Dict[str, Any],
+    current_ir: HardwareIntermediateRepresentation | Dict[str, Any],
     instruction: str,
     *,
     provider_validation: LLMProviderValidation,
     project_id: Optional[str] = None,
     target_namespace: Optional[str] = None,
-) -> HardwareIR:
+) -> HardwareIntermediateRepresentation:
     """Record an iteration request without pretending hardware content changed."""
     base = coerce_hardware_ir(current_ir)
     revised = base.model_copy(deep=True)
@@ -466,7 +466,7 @@ def build_metadata_only_iteration(
     )
 
 
-def _metadata_output_findings(ir: HardwareIR) -> list[str]:
+def _metadata_output_findings(ir: HardwareIntermediateRepresentation) -> list[str]:
     metadata = dict(ir.assembly_metadata or {})
     findings: list[str] = []
 
@@ -513,7 +513,7 @@ def _metadata_output_findings(ir: HardwareIR) -> list[str]:
     return findings
 
 
-def _stored_validation_issues(ir: HardwareIR) -> list[Any]:
+def _stored_validation_issues(ir: HardwareIntermediateRepresentation) -> list[Any]:
     validation = ir.validation
     return [
         *list(validation.critical or []),
@@ -538,7 +538,7 @@ def _dedupe_validation_issues(issues: list[Any]) -> list[Any]:
 
 
 class ProjectIterator:
-    """Provider-agnostic project revision engine for HardwareIR documents."""
+    """Provider-agnostic project revision engine for HardwareIntermediateRepresentation documents."""
 
     def __init__(
         self,
@@ -574,7 +574,7 @@ class ProjectIterator:
 
     def iterate_project(
         self,
-        current_ir: HardwareIR | Dict[str, Any],
+        current_ir: HardwareIntermediateRepresentation | Dict[str, Any],
         instruction: str,
         *,
         original_prompt: Optional[str] = None,
@@ -582,7 +582,7 @@ class ProjectIterator:
         target_namespace: Optional[str] = None,
         image_bytes: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         base = coerce_hardware_ir(current_ir)
         instruction = normalize_iteration_instruction(instruction)
         normalized_namespace = normalize_project_namespace(target_namespace)
@@ -615,7 +615,7 @@ class ProjectIterator:
             target_namespace=normalized_namespace,
         )
         try:
-            revised = self.llm_provider.generate_structured(prompt, HardwareIR, image_bytes, image_mime_type)
+            revised = self.llm_provider.generate_structured(prompt, HardwareIntermediateRepresentation, image_bytes, image_mime_type)
         except Exception as exc:
             raise LLMProviderOutputError(
                 f"Project iteration failed for provider={validation.provider} model={validation.actual_model or validation.requested_model}: {exc}"
@@ -633,7 +633,7 @@ class ProjectIterator:
 
 
 def iterate_project(
-    current_ir: HardwareIR | Dict[str, Any],
+    current_ir: HardwareIntermediateRepresentation | Dict[str, Any],
     instruction: str,
     *,
     original_prompt: Optional[str] = None,
@@ -646,7 +646,7 @@ def iterate_project(
     llm_provider: Optional[StructuredLLMProvider] = None,
     use_simulation: bool = False,
     require_live_generation: bool = False,
-) -> HardwareIR:
+) -> HardwareIntermediateRepresentation:
     iterator = ProjectIterator(
         provider_name=provider_name,
         model_name=model_name,

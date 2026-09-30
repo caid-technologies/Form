@@ -608,7 +608,7 @@ def persist_chat_project_revision(
     """Commit generated chat output canonically, then refresh its gallery projection."""
 
     from forma_core.workers.generation import build_generation_draft
-    from forma_core.workspaces.projects.models import HardwareIR
+    from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
     canonical_project_id = _canonical_project_id(project_id)
     brief = ensure_chat_project(
@@ -625,7 +625,7 @@ def persist_chat_project_revision(
         ):
             raise ValueError("Could not update the canonical project visibility.")
     service = ProjectStateService(_DATABASE_REPOSITORY)
-    candidate = HardwareIR.model_validate(state)
+    candidate = HardwareIntermediateRepresentation.model_validate(state)
     try:
         service.get_latest(canonical_project_id, owner_user_id)
     except ProjectStateError as exc:
@@ -1499,7 +1499,7 @@ def append_project_revision(
     """Persist an iteration as the next immutable canonical project revision."""
 
     from forma_core.workers.generation import build_generation_draft
-    from forma_core.workspaces.projects.models import HardwareIR
+    from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
     service = ProjectStateService(_DATABASE_REPOSITORY)
     try:
@@ -1534,7 +1534,7 @@ def append_project_revision(
                 ),
             )
 
-        baseline = HardwareIR.model_validate(getattr(legacy, "hardware_ir", {}))
+        baseline = HardwareIntermediateRepresentation.model_validate(getattr(legacy, "hardware_ir", {}))
         baseline.assembly_metadata = {
             **(baseline.assembly_metadata or {}),
             "project_id": str(project_uuid),
@@ -1561,7 +1561,7 @@ def append_project_revision(
         parent.design_brief_id,
         parent.design_brief_version,
     )
-    draft = build_generation_draft(brief, HardwareIR.model_validate(state))
+    draft = build_generation_draft(brief, HardwareIntermediateRepresentation.model_validate(state))
     revision = service.create_revision(
         draft,
         project_id=project_id,
@@ -1588,7 +1588,7 @@ def create_project_generation_plan(
         GENERATION_WORKER_ID,
         WORKER_CONTRACT_VERSION,
         GenerationWorker,
-        HardwareIRGenerationEngine,
+        HardwareIntermediateRepresentationGenerationEngine,
         WorkerOrchestrator,
         WorkerRequest,
     )
@@ -1604,7 +1604,7 @@ def create_project_generation_plan(
         raise ValueError("The build owner must match owner_user_id.")
     plan_id = f"build-plan-{build.build_id}"
     existing = _DATABASE_REPOSITORY.get_worker_execution_plan(plan_id, owner)
-    engine = HardwareIRGenerationEngine(provider_name=provider_name, model_name=model_name)
+    engine = HardwareIntermediateRepresentationGenerationEngine(provider_name=provider_name, model_name=model_name)
     worker = GenerationWorker(ProjectStateService(_DATABASE_REPOSITORY), engine)
     orchestrator = WorkerOrchestrator(
         _DATABASE_REPOSITORY,
@@ -1763,12 +1763,12 @@ async def execute_project_generation_plan(
 ):
     """Execute or resume a persisted project-generation plan."""
 
-    from forma_core.workers import GenerationWorker, HardwareIRGenerationEngine, WorkerOrchestrator
+    from forma_core.workers import GenerationWorker, HardwareIntermediateRepresentationGenerationEngine, WorkerOrchestrator
 
     owner = _normalize_user_id(owner_user_id)
     worker = GenerationWorker(
         ProjectStateService(_DATABASE_REPOSITORY),
-        HardwareIRGenerationEngine(provider_name=provider_name, model_name=model_name),
+        HardwareIntermediateRepresentationGenerationEngine(provider_name=provider_name, model_name=model_name),
         project_publisher=publish_project_revision,
     )
     orchestrator = WorkerOrchestrator(

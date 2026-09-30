@@ -206,7 +206,7 @@ def import_project(
     assembly_step: str | Path | None = None,
     preview_stl: str | Path | None = None,
 ) -> ProjectManifest:
-    """Import a generated HardwareIR project and make its CAD renderable locally."""
+    """Import a generated Hardware Intermediate Representation project and make its CAD renderable locally."""
     source_path = Path(source).expanduser().resolve()
     if source_path.is_dir():
         source_path = source_path / PROJECT_FILENAME
@@ -215,12 +215,12 @@ def import_project(
 
     source_root = source_path.parent.resolve()
     imported = load_project_manifest(source_path)
-    from forma_core.workspaces.projects.models import HardwareIR
+    from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
     try:
-        ir = HardwareIR.model_validate(imported.project_ir)
+        ir = HardwareIntermediateRepresentation.model_validate(imported.project_ir)
     except Exception as exc:
-        raise LocalProjectError(f"Project manifest contains invalid HardwareIR: {source_path}") from exc
+        raise LocalProjectError(f"Project manifest contains invalid HardwareIntermediateRepresentation: {source_path}") from exc
 
     target_root = Path(destination).expanduser().resolve() if destination else source_root
     target_root.mkdir(parents=True, exist_ok=True)
@@ -373,9 +373,9 @@ def status_project(path: str | Path | None = None) -> dict[str, Any]:
     manifest = read_project(root)
     try:
         from forma_core.validation import build_validation_summary, validate_circuit
-        from forma_core.workspaces.projects.models import HardwareIR
+        from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
-        ir = HardwareIR.model_validate(manifest.project_ir)
+        ir = HardwareIntermediateRepresentation.model_validate(manifest.project_ir)
         summary = build_validation_summary(validate_circuit(ir.components, ir.nets, ir.requirements))
         valid = not summary.critical
         validation = summary.model_dump(mode="json")
@@ -414,13 +414,13 @@ def slice_local_project(
         resolve_slice_profile,
         slice_project as run_slice_project,
     )
-    from forma_core.workspaces.projects.models import HardwareIR
+    from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
     from forma_core.workspaces.projects.state import ProjectArtifact
 
     try:
-        ir = HardwareIR.model_validate(manifest.project_ir)
+        ir = HardwareIntermediateRepresentation.model_validate(manifest.project_ir)
     except Exception as exc:
-        raise LocalProjectError("Project manifest contains invalid HardwareIR.") from exc
+        raise LocalProjectError("Project manifest contains invalid HardwareIntermediateRepresentation.") from exc
     cad = ir.cad_model if isinstance(ir.cad_model, dict) else {}
     mesh_path = str(cad.get("preview_path") or "").strip()
     if not mesh_path:

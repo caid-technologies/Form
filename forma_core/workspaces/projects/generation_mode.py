@@ -51,7 +51,7 @@ def is_progressive_generation(project_or_metadata: Any) -> bool:
 
 
 def set_generation_mode(project: Any, mode: GenerationMode | str) -> GenerationMode:
-    """Persist a validated generation mode on a HardwareIR-compatible object."""
+    """Persist a validated generation mode on a HardwareIntermediateRepresentation-compatible object."""
 
     normalized = mode if isinstance(mode, GenerationMode) else GenerationMode(str(mode).strip().lower())
     project.assembly_metadata = {

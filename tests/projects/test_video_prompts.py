@@ -6,7 +6,7 @@ from forma_core.workspaces.projects.models import (
     AssemblyStep,
     ComponentInstance,
     FunctionalRequirements,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     MechanicalNotes,
     PinDefinition,
     ProjectOverview,
@@ -16,7 +16,7 @@ from forma_core.video_prompts import generate_image_to_video_prompt_from_namespa
 
 class VideoPromptGenerationTests(unittest.TestCase):
     def test_image_to_video_prompt_uses_project_namespaces(self) -> None:
-        ir = HardwareIR(
+        ir = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Desk Air Quality Monitor",
                 description="A compact monitor with OLED readout and environmental sensing.",

@@ -1,6 +1,6 @@
 # Agents
 
-Forma uses an **ADK-style** multi-agent workflow implemented in `forma_core/agents`. Each agent writes structured artifacts into the Hardware IR.
+Forma uses an **ADK-style** multi-agent workflow implemented in `forma_core/agents`. Each agent writes structured artifacts into the Hardware Intermediate Representation.
 
 ## Pipeline overview
 0. Context clarification → 1. Safety guardrails → 2. Intent Parser → 3. Requirements → 4. System Architecture → 5. Component Selection → 6. Wiring/Netlist (+ repair loop) → 7. BOM → 8. Mechanical/Fabrication → 9. Assembly Instructions → 10. Mechanical render enrichment
@@ -17,7 +17,7 @@ Forma uses an **ADK-style** multi-agent workflow implemented in `forma_core/agen
 
 ### Safety Guardrail (pre-check)
 **Input:** Prompt
-**Output:** Either a normal pipeline run, or a safety-blocked Hardware IR
+**Output:** Either a normal pipeline run, or a safety-blocked Hardware Intermediate Representation
 **Goal:** Block high-risk categories early (weapons, medical, mains AC, automotive control, high-power battery packs).
 
 ### Intent Parser Agent
@@ -80,7 +80,7 @@ flowchart LR
   F --> G[Validation + repair loop]
   G --> H[MechanicalNotes]
   H --> I[AssemblyStep[]]
-  I --> J[Hardware IR]
+  I --> J[Hardware Intermediate Representation]
 ```
 
 ## Notes

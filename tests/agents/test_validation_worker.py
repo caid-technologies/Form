@@ -31,7 +31,7 @@ from forma_core.workspaces.projects import (
 )
 from forma_core.workspaces.projects.models import (
     ComponentInstance,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     ProjectOverview,
     ValidationIssue,
     ValidationSummary,
@@ -149,7 +149,7 @@ class ValidationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             category="Microcontroller",
             rationale="Provides the requested control function.",
         )
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Validation fixture",
                 description="Fixture with deliberately mixed validation results.",

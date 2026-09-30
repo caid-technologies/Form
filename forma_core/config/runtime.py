@@ -151,7 +151,7 @@ def hosted_chat_enabled() -> bool:
 
 
 def authoring_mode_enabled() -> bool:
-    """Resolve external OpenCode authoring mode, disabled by default."""
+    """Resolve external FormaAgent authoring mode, disabled by default."""
     return env_bool(AUTHORING_MODE_ENABLED_ENV, default=False)
 
 

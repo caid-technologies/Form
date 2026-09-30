@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Literal
@@ -9,7 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationInfo, field_validator
 
-from forma_core.workspaces.projects.models import HardwareIR, ValidationIssue
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, ValidationIssue
 from forma_core.workspaces.projects.outcomes import DesignOutcome
 
 
@@ -21,6 +22,7 @@ class OpenCodeSessionStatus(str, Enum):
     ACTIVE = "active"
     CANCELLED = "cancelled"
     COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class OpenCodeCommandStatus(str, Enum):
@@ -65,6 +67,58 @@ class ProjectValidation(BaseModel):
     issues: tuple[ValidationIssue, ...] = ()
 
 
+_DIAGNOSTIC_CODES = frozenset({
+    'EACCES',
+    'EBUSY',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'EINVAL',
+    'EIO',
+    'EMFILE',
+    'ENFILE',
+    'ENOENT',
+    'ENOSPC',
+    'EPERM',
+    'EROFS',
+    'ETIMEDOUT',
+    'OPENCODE_COMMAND_TIMEOUT',
+    'OPENCODE_EVENT_INVALID',
+    'OPENCODE_EVENT_STREAM_CLOSED',
+    'OPENCODE_HTTP_ERROR',
+    'OPENCODE_MESSAGE_INVALID',
+    'OPENCODE_MODEL_UNAVAILABLE',
+    'OPENCODE_PROMPT_FAILED',
+    'OPENCODE_PROVIDER_AUTH',
+    'OPENCODE_PROVIDER_TIMEOUT',
+    'OPENCODE_RATE_LIMIT',
+    'OPENCODE_REQUEST_TIMEOUT',
+    'UND_ERR_BODY_TIMEOUT',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_SOCKET',
+    'aggregate_error',
+    'cancelled',
+    'cancelled_lease_expired',
+    'command_driver_not_configured',
+    'command_failed',
+    'opencode_capability_expired',
+    'opencode_capability_invalid',
+    'opencode_capability_required',
+    'opencode_command_closed',
+    'opencode_connector_auth_required',
+    'opencode_lease_expired',
+    'opencode_lease_invalid',
+    'opencode_lease_required',
+    'opencode_request_rejected',
+    'opencode_scope_mismatch',
+    'opencode_session_closed',
+    'opencode_session_response_invalid',
+    'opencode_transport_unavailable',
+    'syntax_error',
+    'unknown',
+})
+
+
 class SanitizedFailureDiagnostic(BaseModel):
     """Bounded mini-PC failure metadata. Raw provider/OpenCode content is forbidden."""
 
@@ -85,6 +139,15 @@ class SanitizedFailureDiagnostic(BaseModel):
     retryable: bool
     provider: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
     model: str | None = Field(default=None, max_length=160, pattern=r"^[A-Za-z0-9_./:-]+$")
+
+    @field_validator("code")
+    @classmethod
+    def fixed_diagnostic_code(cls, value: str) -> str:
+        # Identifier grammar alone would allow a token or exception text encoded
+        # without spaces. Only known codes may cross the public boundary.
+        if value in _DIAGNOSTIC_CODES or re.fullmatch(r"opencode_session_http_[45]\d{2}", value):
+            return value
+        return "unknown"
 
 
 class PublicError(BaseModel):
@@ -113,6 +176,7 @@ class PublicEvent(BaseModel):
     design_outcome: DesignOutcome | None = None
     error: PublicError | None = None
     diagnostic: SanitizedFailureDiagnostic | None = None
+    command_id: str | None = None
     created_at: datetime
 
 
@@ -193,6 +257,7 @@ class SessionDiagnosticsResponse(BaseModel):
     connector_id: str
     session_id: str
     project_id: UUID
+    status: OpenCodeSessionStatus
     last_successful_poll_at: datetime | None = None
     latest_failure: OperatorFailureDiagnostic | None = None
 
@@ -298,6 +363,7 @@ class ConnectorCompletion(BaseModel):
     lease_token: str = Field(min_length=1)
     status: Literal[OpenCodeCommandStatus.SUCCEEDED, OpenCodeCommandStatus.FAILED, OpenCodeCommandStatus.CANCELLED]
     error_code: str | None = Field(default=None, max_length=80)
+    diagnostic: SanitizedFailureDiagnostic | None = None
 
 
 class McpToolArguments(BaseModel):
@@ -425,7 +491,7 @@ class ProjectToolResult(BaseModel):
 
     project_id: UUID
     revision_id: str | None = None
-    project_ir: HardwareIR
+    project_ir: HardwareIntermediateRepresentation
     validation: ProjectValidation
     mermaid_code: str
     svg_schematic: str

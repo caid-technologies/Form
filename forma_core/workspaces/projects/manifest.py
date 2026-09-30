@@ -220,7 +220,7 @@ class ProjectManifest(BaseModel):
 
     @classmethod
     def from_document(cls, document: Mapping[str, Any]) -> "ProjectManifest":
-        """Accept both the canonical wrapper and legacy raw HardwareIR JSON."""
+        """Accept both the canonical wrapper and legacy raw Hardware Intermediate Representation JSON."""
         raw = dict(document)
         nested = raw.get("project_ir")
         if not isinstance(nested, Mapping):
@@ -272,10 +272,10 @@ def build_canonical_revision_record(
     if not isinstance(manifest, Mapping):
         return None
     try:
-        from forma_core.workspaces.projects.models import HardwareIR
+        from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
         from forma_core.workspaces.projects.state import ProjectRevision
 
-        state = HardwareIR.model_validate(manifest.get("project_ir") or {})
+        state = HardwareIntermediateRepresentation.model_validate(manifest.get("project_ir") or {})
         artifacts = []
         for item in validate_artifact_references(manifest.get("artifacts"), require_integrity=False):
             path = str(item["path"])

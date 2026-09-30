@@ -214,9 +214,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     from forma_core.validation import build_validation_summary, validate_circuit
-    from forma_core.workspaces.projects.models import HardwareIR
+    from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
-    project = HardwareIR.model_validate(_hardware_ir_payload(_read_json(args.project)))
+    project = HardwareIntermediateRepresentation.model_validate(_hardware_ir_payload(_read_json(args.project)))
     summary = build_validation_summary(validate_circuit(project.components, project.nets, project.requirements))
     result = {
         "is_valid": not summary.critical,
@@ -228,10 +228,10 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
 def cmd_iterate(args: argparse.Namespace) -> int:
     from forma_core.workspaces.projects.iteration import iterate_project
-    from forma_core.workspaces.projects.models import HardwareIR
+    from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
     provider, model = _provider_and_model(args)
-    current_project = HardwareIR.model_validate(_hardware_ir_payload(_read_json(args.project)))
+    current_project = HardwareIntermediateRepresentation.model_validate(_hardware_ir_payload(_read_json(args.project)))
     with config.override(_cli_generation_environment(simulation=args.simulation)):
         revised_project = iterate_project(
             current_project,
@@ -270,7 +270,7 @@ def build_parser() -> argparse.ArgumentParser:
     namespaces.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     namespaces.set_defaults(func=cmd_namespaces)
 
-    generate = subparsers.add_parser("generate", help="Generate a HardwareIR directly through Forma Core.")
+    generate = subparsers.add_parser("generate", help="Generate a HardwareIntermediateRepresentation directly through Forma Core.")
     generate.add_argument("prompt", help="Hardware idea to generate.")
     generate.add_argument("--workflow", default="default", choices=("default", "web_research"))
     generate.add_argument("--external-source-provider", choices=("firecrawl",))
@@ -284,25 +284,28 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--terminal-height", type=int, default=40, help="Maximum terminal rows for --show-image.")
     generate.add_argument("--assembly-step", help="Attach a validated assembly.step or assembled.step artifact before persistence.")
     generate.add_argument("--simulation", action="store_true", help="Use the deterministic built-in generator.")
-    generate.add_argument("--output", help="Write HardwareIR JSON to this path; defaults to stdout.")
+    generate.add_argument("--output", help="Write HardwareIntermediateRepresentation JSON to this path; defaults to stdout.")
     _add_runtime_selector_arguments(generate)
     generate.set_defaults(func=cmd_generate)
 
-    validate = subparsers.add_parser("validate", help="Validate a HardwareIR JSON document.")
-    validate.add_argument("project", help="HardwareIR JSON path, or - for stdin.")
+    validate = subparsers.add_parser("validate", help="Validate a HardwareIntermediateRepresentation JSON document.")
+    validate.add_argument("project", help="HardwareIntermediateRepresentation JSON path, or - for stdin.")
     validate.add_argument("--output", help="Write validation JSON to this path; defaults to stdout.")
     validate.set_defaults(func=cmd_validate)
 
-    iterate = subparsers.add_parser("iterate", help="Revise a HardwareIR directly through Forma Core.")
-    iterate.add_argument("project", help="HardwareIR JSON path, or - for stdin.")
+    iterate = subparsers.add_parser("iterate", help="Revise a HardwareIntermediateRepresentation directly through Forma Core.")
+    iterate.add_argument("project", help="HardwareIntermediateRepresentation JSON path, or - for stdin.")
     iterate.add_argument("instruction", help="Natural-language revision instruction.")
     iterate.add_argument("--namespace", help="Target namespace, for example product.mech.")
     iterate.add_argument("--original-prompt")
     iterate.add_argument("--project-id")
     iterate.add_argument("--simulation", action="store_true", help="Apply a metadata-only simulated iteration.")
-    iterate.add_argument("--output", help="Write revised HardwareIR JSON to this path; defaults to stdout.")
+    iterate.add_argument("--output", help="Write revised HardwareIntermediateRepresentation JSON to this path; defaults to stdout.")
     _add_runtime_selector_arguments(iterate)
     iterate.set_defaults(func=cmd_iterate)
+
+    from forma_core.cad_migrations.cli import register_parser as register_cad_migrations
+    register_cad_migrations(subparsers)
 
     return parser
 

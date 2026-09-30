@@ -23,7 +23,7 @@ from forma_core.persistence.models import (
 )
 from forma_core.workspaces.design_briefs import DesignBrief
 from forma_core.workspaces.projects.manifest import build_canonical_revision_record
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.state import ProjectRevision
 
 
@@ -118,7 +118,7 @@ def _legacy_revision(
 ) -> tuple[ProjectRevision, DBProjectRevision]:
     project_id = str(UUID(str(project.project_id)))
     revision_id = uuid5(NAMESPACE_URL, f"forma-legacy-generated-revision:{project_id}")
-    state = HardwareIR.model_validate(project.hardware_ir or {})
+    state = HardwareIntermediateRepresentation.model_validate(project.hardware_ir or {})
     state.assembly_metadata = {
         **(state.assembly_metadata or {}),
         "project_id": project_id,

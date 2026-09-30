@@ -8,7 +8,7 @@ from forma_core.workspaces.projects.models import (
     BOMLineItem,
     ComponentInstance,
     ConnectionNet,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     MechanicalNotes,
     MechanicalPlacement,
     MechanicalVector3,
@@ -37,7 +37,7 @@ def motor_payload(*, quantity: int = 4) -> dict:
 
 class PhysicalComponentInstanceTests(unittest.TestCase):
     def test_legacy_aggregate_expands_to_instances_and_one_bom_row(self) -> None:
-        ir = HardwareIR(hardware_ir_version="0.1", components=[motor_payload()])
+        ir = HardwareIntermediateRepresentation(hardware_ir_version="0.1", components=[motor_payload()])
 
         self.assertEqual("0.2", ir.hardware_ir_version)
         self.assertEqual(["M1", "M2", "M3", "M4"], [item.ref_des for item in ir.components])
@@ -72,7 +72,7 @@ class PhysicalComponentInstanceTests(unittest.TestCase):
             for index in range(1, 5)
         ]
 
-        ir = HardwareIR(
+        ir = HardwareIntermediateRepresentation(
             components=[motor_payload()],
             nets=nets,
             mechanical=MechanicalNotes(
@@ -88,7 +88,7 @@ class PhysicalComponentInstanceTests(unittest.TestCase):
 
     def test_unknown_instance_and_pin_references_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValidationError, "unknown component instance 'M5'"):
-            HardwareIR(
+            HardwareIntermediateRepresentation(
                 components=[motor_payload(quantity=1)],
                 nets=[
                     ConnectionNet(
@@ -101,7 +101,7 @@ class PhysicalComponentInstanceTests(unittest.TestCase):
             )
 
         with self.assertRaisesRegex(ValidationError, "unknown pin 'PWM'"):
-            HardwareIR(
+            HardwareIntermediateRepresentation(
                 components=[motor_payload(quantity=1)],
                 nets=[
                     ConnectionNet(
@@ -142,7 +142,7 @@ class PhysicalComponentInstanceTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValidationError, "must contain every physical instance"):
-            HardwareIR(part_definitions=[definition], components=components, bom=[bad_bom])
+            HardwareIntermediateRepresentation(part_definitions=[definition], components=components, bom=[bad_bom])
 
     def test_source_agnostic_part_definition_round_trips(self) -> None:
         definition = PartDefinition(
@@ -161,7 +161,7 @@ class PhysicalComponentInstanceTests(unittest.TestCase):
             datasheet_url="https://example.com/led.pdf",
             unit_price=0.12,
         )
-        ir = HardwareIR(
+        ir = HardwareIntermediateRepresentation(
             part_definitions=[definition],
             components=[
                 ComponentInstance(
@@ -173,7 +173,7 @@ class PhysicalComponentInstanceTests(unittest.TestCase):
             ],
         )
 
-        restored = HardwareIR.model_validate(ir.model_dump(mode="json"))
+        restored = HardwareIntermediateRepresentation.model_validate(ir.model_dump(mode="json"))
 
         self.assertEqual(definition, restored.part_definitions[0])
         self.assertEqual("LED-5MM-RED", restored.components[0].part_number)
@@ -181,7 +181,7 @@ class PhysicalComponentInstanceTests(unittest.TestCase):
 
     def test_duplicate_reference_designators_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValidationError, "Duplicate component reference designator 'M1'"):
-            HardwareIR(components=[motor_payload(quantity=1), motor_payload(quantity=1)])
+            HardwareIntermediateRepresentation(components=[motor_payload(quantity=1), motor_payload(quantity=1)])
 
 
 if __name__ == "__main__":

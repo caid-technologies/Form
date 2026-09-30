@@ -624,7 +624,7 @@ DEFAULT_AGENT_PIPELINE_STEPS = [
         id="package_project",
         agent="Project Packager",
         label="Packaging project artifacts",
-        description="Building the HardwareIR, diagrams, validation summary, and saved project record.",
+        description="Building the Hardware Intermediate Representation, diagrams, validation summary, and saved project record.",
         duration_ms=3500,
     ),
 ]
@@ -713,7 +713,7 @@ WEB_RESEARCH_AGENT_PIPELINE_STEPS = [
         id="package_project",
         agent="Project Packager",
         label="Packaging project artifacts",
-        description="Building the HardwareIR, diagrams, validation summary, and saved project record.",
+        description="Building the Hardware Intermediate Representation, diagrams, validation summary, and saved project record.",
         duration_ms=3500,
     ),
 ]
@@ -723,7 +723,7 @@ IMAGE_OUTPUT_PIPELINE_STEP = AgentPipelineStep(
     id="image_generation",
     agent="Product Image Agent",
     label="Generating product visuals",
-    description="Creating optional concept images from the completed HardwareIR visual spec.",
+    description="Creating optional concept images from the completed HardwareIntermediateRepresentation visual spec.",
     duration_ms=8000,
     optional=True,
 )

@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from forma_core.workspaces.design_briefs import DesignBrief
-from forma_core.workspaces.projects.models import ComponentInstance, HardwareIR
+from forma_core.workspaces.projects.models import ComponentInstance, HardwareIntermediateRepresentation
 
 
 PROJECT_REVISION_SCHEMA_VERSION = "1.0"
@@ -50,7 +50,7 @@ class ProjectRevisionDraft(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    state: HardwareIR
+    state: HardwareIntermediateRepresentation
     components: list[ComponentInstance] = Field(default_factory=list)
     systems: list[ProjectSystem] = Field(default_factory=list)
     artifacts: list[ProjectArtifact] = Field(default_factory=list)
@@ -61,7 +61,7 @@ class ProjectRevisionDraft(BaseModel):
         component_payloads = [item.model_dump(mode="json") for item in self.components]
         state_component_payloads = [item.model_dump(mode="json") for item in self.state.components]
         if component_payloads != state_component_payloads:
-            raise ValueError("Project revision components must match the canonical HardwareIR state.")
+            raise ValueError("Project revision components must match the canonical HardwareIntermediateRepresentation state.")
         # Keep runtime-only shared part details available to worker consumers while
         # persisting only the normalized physical-instance records.
         self.components = list(self.state.components)

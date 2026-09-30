@@ -12,7 +12,7 @@ from forma_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
     FunctionalRequirements,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     MechanicalNotes,
     PinDefinition,
     PinReference,
@@ -23,7 +23,7 @@ from forma_core.workspaces.projects.objects import build_project_object
 
 class ContextGovernanceTests(unittest.TestCase):
     def setUp(self) -> None:
-        ir = HardwareIR(
+        ir = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Controller",
                 description="A low-voltage controller.",

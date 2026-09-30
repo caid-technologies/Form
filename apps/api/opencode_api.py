@@ -40,8 +40,10 @@ from forma_core.opencode.models import (
     McpJsonRpcRequest,
     ValidationSummary,
 )
+from forma_core.opencode.architecture import architecture_turn_context
+from forma_core.workspaces.projects.state import ProjectStateError
 from forma_core.opencode.public_events import project_public_event
-from forma_core.opencode.store import CommandConflictError, OpenCodeStore, StoredCommand, StoredSession
+from forma_core.opencode.store import CommandConflictError, OpenCodeStore, StoredCommand, StoredSession, SessionClosedError, LeaseError
 from forma_core.database import get_project_identity, get_latest_project_revision
 from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 
@@ -75,33 +77,35 @@ def get_opencode_session_diagnostics(
     session = _owned_session(session_id, owner)
     response.headers["Cache-Control"] = "private, no-store"
 
-    after = max(0, session.next_event_sequence - 201)
-    events = OPENCODE_STORE.list_events(session.session_id, after, 200)
-    latest = next(
-        (event for event in reversed(events) if event.kind == OpenCodeEventKind.FAILED and event.diagnostic is not None),
-        None,
-    )
+    session = OPENCODE_STORE.reconcile_session(session.session_id) or session
+    latest = OPENCODE_STORE.latest_failure(session.session_id)
     failure = None
-    if latest is not None and latest.diagnostic is not None:
-        command_id = latest.event_id.partition(":")[0]
+    if latest is not None:
+        command_id = latest.command_id or latest.event_id.partition(":")[0]
         diagnostic = latest.diagnostic
+        code = diagnostic.code if diagnostic else latest.error.code if latest.error else "cancelled"
+        category = diagnostic.category if diagnostic else (
+            "connector_cloud_connectivity" if code in {"connector_timeout", "connector_unavailable", "opencode_lease_expired"}
+            else "cancellation" if latest.kind == OpenCodeEventKind.CANCELLED else "unknown"
+        )
         failure = OperatorFailureDiagnostic(
             timestamp=latest.created_at,
             connector_id=session.connector_id,
             session_id=session.session_id,
             command_id=command_id,
-            correlation_id=latest.error.correlation_id if latest.error else command_id,
-            category=diagnostic.category,
-            code=diagnostic.code,
-            phase=diagnostic.phase,
-            retryable=diagnostic.retryable,
-            provider=diagnostic.provider,
-            model=diagnostic.model,
+            correlation_id=command_id,
+            category=category,
+            code=code,
+            phase=diagnostic.phase if diagnostic else "finalizing",
+            retryable=diagnostic.retryable if diagnostic else category == "connector_cloud_connectivity",
+            provider=diagnostic.provider if diagnostic else None,
+            model=diagnostic.model if diagnostic else None,
         )
     return SessionDiagnosticsResponse(
         connector_id=session.connector_id,
         session_id=session.session_id,
         project_id=UUID(session.project_id),
+        status=session.status,
         last_successful_poll_at=_datetime(session.last_heartbeat_at) if session.last_heartbeat_at else None,
         latest_failure=failure,
     )
@@ -162,6 +166,7 @@ def get_opencode_session(
     user: UserContext = Depends(require_opencode_authoring_access),
 ) -> SessionResponse:
     session = _owned_session(session_id, _owner(user))
+    session = OPENCODE_STORE.reconcile_session(session.session_id) or session
     return _session_response(session)
 
 
@@ -172,6 +177,7 @@ def submit_opencode_command(
     user: UserContext = Depends(require_opencode_authoring_access),
 ) -> CommandResponse:
     session = _owned_session(session_id, _owner(user))
+    session = OPENCODE_STORE.reconcile_session(session.session_id) or session
     if session.status != OpenCodeSessionStatus.ACTIVE:
         raise _http_error(409, "opencode_session_closed", "The OpenCode session is no longer active.")
     try:
@@ -183,6 +189,8 @@ def submit_opencode_command(
             message=request.message,
             model=request.model,
         )
+    except SessionClosedError:
+        raise _http_error(409, "opencode_session_closed", "The OpenCode session is no longer active.")
     except CommandConflictError:
         raise _http_error(409, "opencode_command_conflict", "This request key was already used with a different message or model.")
     _store_event(
@@ -216,14 +224,7 @@ def cancel_opencode_session(
     user: UserContext = Depends(require_opencode_authoring_access),
 ) -> SessionResponse:
     session = _owned_session(session_id, _owner(user))
-    if session.status == OpenCodeSessionStatus.ACTIVE:
-        _set_session_status(session, OpenCodeSessionStatus.CANCELLED)
-        OPENCODE_STORE.cancel_session_commands(session.session_id)
-        _store_event(
-            session,
-            ConnectorEventInput(event_id=f"cancelled_{session.session_id}", kind=OpenCodeEventKind.CANCELLED.value, status=OpenCodeCommandStatus.CANCELLED),
-        )
-        session = OPENCODE_STORE.get_session(session.session_id) or session
+    session = OPENCODE_STORE.reconcile_session(session.session_id, cancel=True) or session
     return _session_response(session)
 
 
@@ -233,7 +234,7 @@ def issue_opencode_connector_capability(
     bootstrap: str | None = Header(default=None, alias="X-Forma-OpenCode-Bootstrap"),
 ) -> ConnectorCapabilityResponse:
     _require_connector_bootstrap(bootstrap)
-    session = OPENCODE_STORE.get_session(request.session_id)
+    session = OPENCODE_STORE.reconcile_session(request.session_id)
     if session is None or session.connector_id != request.connector_id or session.status != OpenCodeSessionStatus.ACTIVE:
         raise _http_error(404, "opencode_session_not_found", "The OpenCode session was not found.")
     token = issue_capability(
@@ -258,7 +259,9 @@ def list_opencode_connector_sessions(
     return ConnectorSessionPage(
         sessions=tuple(
             ConnectorSession(session_id=session.session_id, connector_id=session.connector_id, project_id=UUID(session.project_id))
-            for session in sessions
+            for candidate in sessions
+            if (session := OPENCODE_STORE.reconcile_session(candidate.session_id)) is not None
+            and session.status == OpenCodeSessionStatus.ACTIVE
         )
     )
 
@@ -271,14 +274,26 @@ def poll_opencode_command(
     lease_seconds: int = Query(60, ge=15, le=300),
 ) -> ConnectorCommand | Response:
     cap = _connector_capability(capability or _bearer(authorization), session_id=session_id, scope="poll")
-    session = _scoped_connector_session(cap)
-    OPENCODE_STORE.touch_session(session.session_id)
+    session = _scoped_connector_session(cap, require_active=False)
     configured_lease_seconds = lease_seconds if isinstance(lease_seconds, int) else 60
     if session.status != OpenCodeSessionStatus.ACTIVE:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+    OPENCODE_STORE.touch_session(session.session_id)
     command = OPENCODE_STORE.claim_next(connector_id=session.connector_id, session_id=session.session_id, lease_seconds=configured_lease_seconds)
     if command is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+    if command.message is not None:
+        try:
+            revision = get_latest_project_revision(session.project_id, session.owner_user_id)
+        except ProjectStateError as exc:
+            if exc.code != "project_revision_not_found":
+                raise
+            revision = None
+        command = command.model_copy(update={"message": architecture_turn_context(
+            command.message,
+            revision.state if revision else None,
+            str(revision.revision_id) if revision else None,
+        )})
     return command
 
 
@@ -305,7 +320,8 @@ def heartbeat_opencode_command(
     try:
         updated = OPENCODE_STORE.heartbeat(command, request.lease_token)
     except PermissionError as exc:
-        raise _http_error(403, "opencode_lease_invalid", "The command lease is invalid or expired.") from exc
+        raise _http_error(403, exc.code if isinstance(exc, LeaseError) else "opencode_lease_invalid",
+                          "The command lease is no longer valid.") from exc
     return ConnectorLeaseResponse(
         command_id=updated.command_id,
         status=updated.status,
@@ -325,14 +341,21 @@ def ingest_opencode_event(
     command = _connector_command(command_id, resolved_capability, "events")
     if not lease_token:
         raise _http_error(401, "opencode_lease_required", "The command lease is required for event delivery.")
+    if event.project_id is not None and str(event.project_id) != command.project_id:
+        raise _http_error(403, "opencode_scope_mismatch", "The event is outside the command project scope.")
+    # A lost acknowledgement may be replayed after completion revoked the lease.
+    # Return the durable original, never the new payload, within the verified scope.
+    existing = OPENCODE_STORE.get_event(command.session_id, event.event_id)
+    if existing is not None:
+        return existing
     try:
         OPENCODE_STORE.validate_lease(command, lease_token)
     except PermissionError as exc:
-        raise _http_error(403, "opencode_lease_invalid", "The command lease is invalid or expired.") from exc
-    if event.project_id is not None and str(event.project_id) != command.project_id:
-        raise _http_error(403, "opencode_scope_mismatch", "The event is outside the command project scope.")
+        raise _http_error(403, exc.code if isinstance(exc, LeaseError) else "opencode_lease_invalid",
+                          "The command lease is no longer valid.") from exc
     session = _scoped_connector_session(verify_capability(resolved_capability or "", session_id=command.session_id, project_id=command.project_id, owner_user_id=command.owner_user_id, scope="events"))
-    return _store_event(session, event)
+    event = event.model_copy(update={"correlation_id": command.command_id})
+    return _store_event(session, event, command_id=command.command_id)
 
 
 @router.post("/connector/commands/{command_id}/complete", response_model=CommandResponse)
@@ -346,7 +369,8 @@ def complete_opencode_command(
     try:
         updated = OPENCODE_STORE.complete(command, request.lease_token, request.status)
     except PermissionError as exc:
-        raise _http_error(403, "opencode_lease_invalid", "The command lease is invalid or expired.") from exc
+        raise _http_error(403, exc.code if isinstance(exc, LeaseError) else "opencode_lease_invalid",
+                          "The command lease is no longer valid.") from exc
     terminal_kind = {
         OpenCodeCommandStatus.SUCCEEDED: OpenCodeEventKind.COMPLETED.value,
         OpenCodeCommandStatus.FAILED: OpenCodeEventKind.FAILED.value,
@@ -359,7 +383,10 @@ def complete_opencode_command(
             kind=terminal_kind,
             status=request.status,
             error_code=request.error_code if request.status == OpenCodeCommandStatus.FAILED else None,
+            correlation_id=command.command_id,
+            diagnostic=request.diagnostic,
         ),
+        command_id=command.command_id,
     )
     return _command_response(updated)
 
@@ -371,6 +398,7 @@ async def opencode_mcp_endpoint(
     authorization: str | None = Header(default=None),
 ) -> dict[str, object] | list[dict[str, object]] | Response:
     cap = _connector_capability(capability or _bearer(authorization), scope="mcp")
+    _scoped_connector_session(cap)
     response = await handle_opencode_mcp_json_rpc(payload, cap)
     return Response(status_code=status.HTTP_202_ACCEPTED) if response is None else response
 
@@ -416,13 +444,14 @@ def _datetime(value: str) -> datetime:
     return datetime.fromisoformat(normalized).astimezone(timezone.utc)
 
 
-def _store_event(session: StoredSession, event: ConnectorEventInput) -> PublicEvent:
+def _store_event(session: StoredSession, event: ConnectorEventInput, *, command_id: str | None = None) -> PublicEvent:
     public_event = project_public_event(
         event,
         sequence=OPENCODE_STORE.next_event_sequence(session.session_id),
         session_id=session.session_id,
         project_id=UUID(session.project_id),
     )
+    public_event.command_id = command_id
     if public_event.kind == OpenCodeEventKind.COMPLETED:
         # The gateway, not the worker's HTTP result, owns saved-output evidence.
         revision = get_latest_project_revision(session.project_id, session.owner_user_id)
@@ -440,31 +469,7 @@ def _store_event(session: StoredSession, event: ConnectorEventInput) -> PublicEv
 
 
 def _record_connector_unavailable_if_stale(session: StoredSession) -> None:
-    last_seen = session.last_heartbeat_at or session.created_at
-    normalized = last_seen[:-1] + "+00:00" if last_seen.endswith("Z") else last_seen
-    try:
-        age = (datetime.now(timezone.utc) - datetime.fromisoformat(normalized).astimezone(timezone.utc)).total_seconds()
-    except ValueError:
-        age = 0
-    if age < 120 or session.status != OpenCodeSessionStatus.ACTIVE:
-        return
-    _store_event(
-        session,
-        ConnectorEventInput(
-            event_id=f"connector_unavailable_{session.session_id}",
-            kind=OpenCodeEventKind.CONNECTOR_UNAVAILABLE.value,
-        ),
-    )
-
-
-def _set_session_status(session: StoredSession, new_status: OpenCodeSessionStatus) -> None:
-    provider = OPENCODE_STORE.provider
-    now = _timestamp()
-    if hasattr(provider, "client"):
-        provider.client.table("opencode_sessions").update({"status": new_status.value, "updated_at": now}).eq("session_id", session.session_id).execute()
-    else:
-        with OPENCODE_STORE._connection() as connection:
-            connection.execute("UPDATE opencode_sessions SET status = ?, updated_at = ? WHERE session_id = ?", (new_status.value, now, session.session_id))
+    OPENCODE_STORE.reconcile_session(session.session_id)
 
 
 def _connector_capability(token: str | None, *, session_id: str | None = None, scope: str) -> ConnectorCapability:
@@ -473,7 +478,7 @@ def _connector_capability(token: str | None, *, session_id: str | None = None, s
     try:
         return verify_capability(token, session_id=session_id, scope=scope)
     except CapabilityError as exc:
-        raise _http_error(403, "opencode_capability_invalid", "The connector capability is invalid or out of scope.") from exc
+        raise _http_error(403, exc.code, "The connector capability was rejected.") from exc
 
 
 def _bearer(value: str | None) -> str | None:
@@ -483,15 +488,19 @@ def _bearer(value: str | None) -> str | None:
     return token.strip() if scheme.lower() == "bearer" and token.strip() else None
 
 
-def _scoped_connector_session(capability: ConnectorCapability) -> StoredSession:
+def _scoped_connector_session(capability: ConnectorCapability, *, require_active: bool = True) -> StoredSession:
     session = OPENCODE_STORE.get_session(capability.session_id)
     if session is None or session.connector_id != capability.connector_id or session.project_id != capability.project_id or session.owner_user_id != capability.owner_user_id:
         raise _http_error(403, "opencode_scope_mismatch", "The connector capability does not match the session.")
+    session = OPENCODE_STORE.reconcile_session(session.session_id) or session
+    if require_active and session.status != OpenCodeSessionStatus.ACTIVE:
+        raise _http_error(409, "opencode_session_closed", "The OpenCode session is no longer active.")
     return session
 
 
 def _connector_command(command_id: str, token: str | None, scope: str) -> StoredCommand:
     cap = _connector_capability(token, scope=scope)
+    _scoped_connector_session(cap)
     command = OPENCODE_STORE.get_command(command_id)
     if command is None or command.session_id != cap.session_id or command.connector_id != cap.connector_id or command.project_id != cap.project_id or command.owner_user_id != cap.owner_user_id:
         raise _http_error(403, "opencode_scope_mismatch", "The connector capability does not match the command.")
@@ -502,10 +511,6 @@ def _require_connector_bootstrap(value: str | None) -> None:
     configured = (config.get("FORMA_OPENCODE_CONNECTOR_BOOTSTRAP_TOKEN") or "").strip()
     if len(configured) < 32 or not value or not hmac.compare_digest(value, configured):
         raise _http_error(401, "opencode_connector_auth_required", "The connector bootstrap credential is invalid.")
-
-
-def _timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _http_error(code: int, error_code: str, message: str) -> HTTPException:

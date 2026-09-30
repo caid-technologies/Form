@@ -15,7 +15,7 @@ from forma_core.workspaces.projects.design_lifecycle import (
 )
 from forma_core.workspaces.projects.models import (
     ComponentInstance,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     MechanicalNotes,
     MechanicalPlacement,
     MechanicalVector3,
@@ -24,8 +24,8 @@ from forma_core.workspaces.projects.models import (
 )
 
 
-def gated_project(*, policy: str = "auto_approve_visual", mode: str = "progressive") -> HardwareIR:
-    return HardwareIR(
+def gated_project(*, policy: str = "auto_approve_visual", mode: str = "progressive") -> HardwareIntermediateRepresentation:
+    return HardwareIntermediateRepresentation(
         system_architecture=SystemArchitecture(
             summary="Small controller",
             root=SystemNode(

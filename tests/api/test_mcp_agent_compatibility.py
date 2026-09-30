@@ -13,7 +13,7 @@ from apps.api.a2a import A2AMessage, MCP_DEFAULT_PROTOCOL_VERSION, _persist_mcp_
 from apps.api.auth import UserContext
 from apps.api.main import app
 from forma_core.workspaces.projects import ProjectStateError
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
 
 class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
@@ -173,7 +173,7 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
 
     def test_compile_recovers_a_partial_identity_without_a_revision(self) -> None:
         project_id = "12345678-1234-4234-8234-123456789012"
-        project = HardwareIR.model_validate({"components": [], "nets": []})
+        project = HardwareIntermediateRepresentation.model_validate({"components": [], "nets": []})
         with (
             patch(
                 "apps.api.a2a.get_project_identity",
@@ -209,8 +209,8 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
     def test_opencode_revisions_preserve_the_original_brief_and_chat(self) -> None:
         project_id = "12345678-1234-4234-8234-123456789012"
         original = "A nylon mechanical gear with 36 rounded teeth, no electronics."
-        prior = HardwareIR.model_validate({"components": [], "nets": [], "assembly_metadata": {"source_prompt": original}})
-        project = HardwareIR.model_validate({"components": [], "nets": [], "assembly_metadata": {"source_prompt": "Render this project"}})
+        prior = HardwareIntermediateRepresentation.model_validate({"components": [], "nets": [], "assembly_metadata": {"source_prompt": original}})
+        project = HardwareIntermediateRepresentation.model_validate({"components": [], "nets": [], "assembly_metadata": {"source_prompt": "Render this project"}})
         with (
             patch("apps.api.a2a.get_project_identity", return_value={
                 "owner_user_id": "agent-user", "status": "active", "chat_id": "original-chat",

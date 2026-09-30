@@ -9,7 +9,7 @@ from forma_core.workspaces.projects.design_lifecycle import (
     VisualApprovalStatus,
     load_design_lifecycle,
 )
-from forma_core.workspaces.projects.models import HardwareIR, SystemArchitecture, SystemNode
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, SystemArchitecture, SystemNode
 from forma_core.workspaces.projects.output import attach_product_image
 
 
@@ -42,13 +42,13 @@ class FakeImageProvider:
         self.calls.append(("system", prompt))
         return self._image(prompt, view_id="test", label="System")
 
-    def generate_project_image_sequence(self, prompt: str, ir: HardwareIR):
+    def generate_project_image_sequence(self, prompt: str, ir: HardwareIntermediateRepresentation):
         self.calls.append(("project", prompt))
         return [self._image(prompt, view_id="hero", label="Whole system")]
 
 
-def project(*, policy: str = "require_approval", mode: str = "progressive") -> HardwareIR:
-    return HardwareIR(
+def project(*, policy: str = "require_approval", mode: str = "progressive") -> HardwareIntermediateRepresentation:
+    return HardwareIntermediateRepresentation(
         system_architecture=SystemArchitecture(
             summary="Desk robot",
             root=SystemNode(

@@ -131,7 +131,7 @@ class ProjectSummaryTests(unittest.TestCase):
             created_at="2026-07-21T14:08:00Z",
             owner_user_id="user_123",
             hardware_ir={
-                "components": [{"legacy_shape": "not a HardwareIR component"}],
+                "components": [{"legacy_shape": "not a HardwareIntermediateRepresentation component"}],
                 "assembly_metadata": {
                     "image_output_status": "succeeded",
                     "product_image_url": "https://storage.example.test/product.png",
@@ -150,7 +150,7 @@ class ProjectSummaryTests(unittest.TestCase):
             main, "hydrate_image_storage_metadata", side_effect=lambda metadata, _project_id: metadata
         ), patch.object(
             main, "project_engagement_for_ids", return_value={}
-        ), patch.object(main, "HardwareIR", side_effect=AssertionError("HardwareIR should not be constructed")):
+        ), patch.object(main, "HardwareIntermediateRepresentation", side_effect=AssertionError("HardwareIntermediateRepresentation should not be constructed")):
             summary = main.get_project_image_summary_endpoint(project.project_id, ANONYMOUS_USER)
 
         self.assertEqual(project.project_id, summary["project_id"])

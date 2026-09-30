@@ -12,14 +12,14 @@ import sys
 import tempfile
 
 from forma_core.workspaces.projects.gear_benchmark import SpurGearPairBenchmark, gear_pair_source
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def example_project() -> HardwareIR:
-    return HardwareIR.model_validate({
+def example_project() -> HardwareIntermediateRepresentation:
+    return HardwareIntermediateRepresentation.model_validate({
         "overview": {"title": "Two Meshing Gears", "description": "20-tooth driver and 40-tooth driven gear, with synchronized OpenCAD motion.", "difficulty": "Intermediate", "estimated_cost": 0, "category": "Mechanical"},
         "components": [
             {"ref_des": ref, "part_number": ref, "name": label, "category": "Mechanical", "rationale": "Separate gear body in a prescribed rigid mechanism."}

@@ -19,7 +19,7 @@ from forma_core.workspaces.projects.mechanism_benchmarks import (
 )
 from forma_core.workspaces.projects.models import (
     ComponentInstance,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     MechanicalNotes,
     MechanicalPlacement,
     MechanicalVector3,
@@ -37,7 +37,7 @@ def inspect_step(path: str) -> dict:
     return json.loads(result.stdout)
 
 
-def print_in_place_project() -> HardwareIR:
+def print_in_place_project() -> HardwareIntermediateRepresentation:
     components = [
         ComponentInstance(
             ref_des="PIP_FIXED",
@@ -54,7 +54,7 @@ def print_in_place_project() -> HardwareIR:
             rationale="Moving body carrying the captive pin.",
         ),
     ]
-    return HardwareIR(
+    return HardwareIntermediateRepresentation(
         components=components,
         mechanical=MechanicalNotes(
             physical_form="Print-in-place captive hinge calibration coupon",
@@ -89,7 +89,7 @@ def print_in_place_project() -> HardwareIR:
     )
 
 
-def flexure_project() -> HardwareIR:
+def flexure_project() -> HardwareIntermediateRepresentation:
     spec = MonolithicFlexureBenchmark()
     overlap = max(0.5, min(1.5, spec.flexure_length_mm * 0.12))
     center = spec.flexure_length_mm / 2.0 + spec.rigid_body_length_mm / 2.0 - overlap
@@ -109,7 +109,7 @@ def flexure_project() -> HardwareIR:
             rationale="Moving rigid region used by the approximate deformation preview.",
         ),
     ]
-    return HardwareIR(
+    return HardwareIntermediateRepresentation(
         components=components,
         mechanical=MechanicalNotes(
             physical_form="Monolithic flexure hinge calibration coupon",
@@ -188,7 +188,7 @@ class MechanismBenchmarkTests(unittest.TestCase):
         repo_root = Path(__file__).resolve().parents[2]
         for filename in ("print_in_place_hinge.json", "monolithic_flexure_hinge.json"):
             with self.subTest(filename=filename):
-                project = HardwareIR.model_validate_json(
+                project = HardwareIntermediateRepresentation.model_validate_json(
                     (repo_root / "examples" / filename).read_text(encoding="utf-8")
                 )
                 self.assertIsNotNone(project.mechanical)

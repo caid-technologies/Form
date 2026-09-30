@@ -52,7 +52,7 @@ from forma_core.llm import get_llm_runtime_debug_config
 from forma_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
 )
 from forma_core.workspaces.projects import ProjectStateError
 from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
@@ -2305,7 +2305,7 @@ async def _handle_mcp_request(
 
 
 def _persist_mcp_compile(
-    project: HardwareIR,
+    project: HardwareIntermediateRepresentation,
     arguments: Dict[str, Any],
     user_context: Optional[UserContext],
 ) -> Dict[str, Any]:
@@ -2473,7 +2473,7 @@ async def _call_mcp_tool(
     user_context: Optional[UserContext] = None,
 ) -> Dict[str, Any]:
     if tool_name == "forma.compile_project":
-        project = HardwareIR.model_validate(arguments.get("project_ir"))
+        project = HardwareIntermediateRepresentation.model_validate(arguments.get("project_ir"))
         issues = validate_circuit(project.components, project.nets, project.requirements)
         project.validation = build_validation_summary(issues)
         project.is_valid = not project.validation.critical

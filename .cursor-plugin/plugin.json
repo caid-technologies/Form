@@ -1,0 +1,15 @@
+{
+  "name": "forma",
+  "version": "0.1.0",
+  "description": "Author hardware with your agent, then use Forma to compile and validate designs, create CAD artifacts, and inspect project state.",
+  "author": {
+    "name": "Caid Technologies"
+  },
+  "homepage": "https://caid-technologies.us/",
+  "repository": "https://github.com/caid-technologies/Form-OSS",
+  "license": "MPL-2.0",
+  "keywords": ["hardware", "cad", "electronics", "mcp"],
+  "logo": "apps/web/public/brand/caid-logo.jpg",
+  "skills": ".agents/skills",
+  "mcpServers": "mcp.json"
+}

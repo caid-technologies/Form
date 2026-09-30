@@ -150,10 +150,10 @@ class CorePackageTests(unittest.TestCase):
 
     def test_generation_package_imports(self) -> None:
         from forma_core.generation import HardwarePipelineOrchestrator, list_workflows
-        from forma_core.workspaces.projects.models import HardwareIR
+        from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
         self.assertEqual("HardwarePipelineOrchestrator", HardwarePipelineOrchestrator.__name__)
-        self.assertEqual("HardwareIR", HardwareIR.__name__)
+        self.assertEqual("HardwareIntermediateRepresentation", HardwareIntermediateRepresentation.__name__)
         self.assertIn("default", [item["id"] for item in list_workflows()])
 
     def test_backend_compatibility_wrappers_reexport_core_objects(self) -> None:
@@ -166,7 +166,7 @@ class CorePackageTests(unittest.TestCase):
         from forma_core import llm as core_llm
         from forma_core.workspaces.projects import models as core_models
 
-        self.assertIs(backend_models.HardwareIR, core_models.HardwareIR)
+        self.assertIs(backend_models.HardwareIntermediateRepresentation, core_models.HardwareIntermediateRepresentation)
         self.assertIs(backend_validation.validate_circuit, core_validation.validate_circuit)
         self.assertIs(backend_llm.resolve_llm_runtime_config, core_llm.resolve_llm_runtime_config)
         self.assertIs(

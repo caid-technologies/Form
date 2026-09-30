@@ -7,7 +7,7 @@ from unittest.mock import Mock
 from uuid import uuid4
 
 from forma_core.workspaces.design_briefs import DesignBrief, DESIGN_BRIEF_SCHEMA_VERSION
-from forma_core.workspaces.projects.models import HardwareIR, ProjectOverview
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, ProjectOverview
 from forma_core.workspaces.projects.resolver import (
     ProjectReadNotFoundError,
     ProjectReadResolver,
@@ -18,8 +18,8 @@ from forma_core.workspaces.projects.state import ProjectRevision, ProjectStateEr
 PROJECT_ID = "11111111-1111-4111-8111-111111111111"
 
 
-def _ir() -> HardwareIR:
-    return HardwareIR(
+def _ir() -> HardwareIntermediateRepresentation:
+    return HardwareIntermediateRepresentation(
         overview=ProjectOverview(
             title="Resolver project",
             description="A resolver test project.",

@@ -1,4 +1,4 @@
-"""Shared package, hosted protocol, and Hardware IR compatibility policy."""
+"""Shared package, hosted protocol, and Hardware Intermediate Representation compatibility policy."""
 
 from __future__ import annotations
 
@@ -65,12 +65,12 @@ class CompatibilityResult(BaseModel):
         }
 
 
-class UnsupportedHardwareIRVersion(ValueError):
-    """Raised when a serialized Hardware IR document uses an unsupported schema."""
+class UnsupportedHardwareIntermediateRepresentationVersion(ValueError):
+    """Raised when a serialized Hardware Intermediate Representation document uses an unsupported schema."""
 
     def __init__(self, version: str) -> None:
         self.version = version
-        super().__init__(f"Hardware IR schema version {version!r} is not supported by this Forma service.")
+        super().__init__(f"Hardware Intermediate Representation schema version {version!r} is not supported by this Forma service.")
 
 
 def _version_tuple(value: str) -> tuple[int, int, int]:
@@ -179,7 +179,7 @@ def evaluate_compatibility(
             **base,
             status=CompatibilityStatus.UNSUPPORTED_HARDWARE_IR,
             message=(
-                f"Hardware IR schema version {hardware_ir_version} is not supported by the Forma hosted API. "
+                f"Hardware Intermediate Representation schema version {hardware_ir_version} is not supported by the Forma hosted API. "
                 f"Supported version(s): {', '.join(metadata.supported_hardware_ir_versions or [metadata.hardware_ir_version])}."
             ),
         )
@@ -229,7 +229,7 @@ def ensure_supported_hardware_ir_version(
     version = hardware_ir_version_from_document(document)
     supported = set(supported_versions or SUPPORTED_HARDWARE_IR_VERSIONS)
     if version is not None and version not in supported:
-        raise UnsupportedHardwareIRVersion(version)
+        raise UnsupportedHardwareIntermediateRepresentationVersion(version)
 
 
 def unavailable_result(client_version: str) -> CompatibilityResult:
@@ -267,7 +267,7 @@ __all__ = [
     "CompatibilityStatus",
     "SUPPORTED_HARDWARE_IR_VERSIONS",
     "UPGRADE_COMMAND",
-    "UnsupportedHardwareIRVersion",
+    "UnsupportedHardwareIntermediateRepresentationVersion",
     "compatibility_error_detail",
     "compare_versions",
     "ensure_supported_hardware_ir_version",

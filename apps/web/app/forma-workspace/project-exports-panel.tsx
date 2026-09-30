@@ -227,7 +227,7 @@ export default function ProjectExportsPanel({
               <FileJson className="h-5 w-5 shrink-0 text-[rgb(var(--forma-cyan-rgb))]" />
               <span className="min-w-0">
                 <span className="block text-xs font-semibold text-[var(--forma-text-strong)]">Project JSON</span>
-                <span className="mt-1 block text-[10px] text-[var(--forma-text-muted)]">Full Hardware IR and project metadata (.json)</span>
+                <span className="mt-1 block text-[10px] text-[var(--forma-text-muted)]">Full Hardware Intermediate Representation and project metadata (.json)</span>
               </span>
             </span>
             <Download className="h-4 w-4 shrink-0 text-[var(--forma-text-muted)]" />
@@ -288,7 +288,7 @@ export default function ProjectExportsPanel({
               <div
                 role="menu"
                 aria-label="Download CAD format"
-                className="absolute right-0 top-full z-30 mt-2 w-48 overflow-hidden rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] py-1 shadow-xl"
+                className="absolute left-0 right-auto top-full z-30 mt-2 w-48 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] py-1 shadow-xl sm:left-auto sm:right-0"
               >
                 <button
                   type="button"

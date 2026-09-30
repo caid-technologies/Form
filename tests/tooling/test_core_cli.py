@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from forma_core.cli.main import CLI_LIVE_GENERATION_ENVIRONMENT, build_parser, main
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
 
 class CoreCliTests(unittest.TestCase):
@@ -75,7 +75,7 @@ class CoreCliTests(unittest.TestCase):
         self.assertIn("provider is not configured", stderr.getvalue())
 
     def test_live_generate_rejects_fallback_metadata_before_persistence(self) -> None:
-        fallback_project = HardwareIR(
+        fallback_project = HardwareIntermediateRepresentation(
             assembly_metadata={"fallback_mode": True, "workflow_fallback": "simulation"}
         )
         stderr = io.StringIO()

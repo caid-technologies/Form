@@ -1,6 +1,6 @@
 # Examples
 
-Forma ships with a few example Hardware IR projects to make the MVP easy to explore without live agent calls.
+Forma ships with a few example Hardware Intermediate Representation projects to make the MVP easy to explore without live agent calls.
 
 ## Example projects
 - **Auto-Grow Plant Watering** (`examples/plant_watering.json`)
@@ -18,7 +18,7 @@ You can deep-link an example in the UI:
 - `http://localhost:3000/?example=monolithic_flexure_hinge&tab=mechanical`
 
 ## What each example includes
-- Typed Hardware IR (overview, requirements, components)
+- Typed Hardware Intermediate Representation (overview, requirements, components)
 - Nets and pin mappings
 - BOM data and estimated cost
 - Assembly steps and mechanical notes

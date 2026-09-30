@@ -1,4 +1,4 @@
-# Agent-authored Hardware IR
+# Agent-authored Hardware Intermediate Representation
 
 Author a concrete, internally consistent project. Use unique reference designators and net IDs. Every net endpoint must point to a declared component pin.
 

@@ -109,7 +109,7 @@ def validate_circuit(
     prompt: str = "",
 ) -> List[ValidationIssue]:
     """
-    Runs automated electrical and logical validation checks on the structured Hardware IR netlist.
+    Runs automated electrical and logical validation checks on the structured Hardware Intermediate Representation netlist.
     Returns a list of ValidationIssues (Errors and Warnings) with troubleshooting advice.
     """
     issues: List[ValidationIssue] = validate_requirement_coverage(requirements, components, prompt=prompt)

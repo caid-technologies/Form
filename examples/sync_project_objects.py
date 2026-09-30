@@ -413,7 +413,7 @@ def run_project_object_job(
     generate_image: bool = False,
 ) -> ProjectObjectRunResult:
     from apps.api.a2a import build_generation_response
-    from forma_core.workspaces.projects.models import HardwareIR
+    from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
     from forma_core.workspaces.projects.objects import attach_project_object_metadata, build_project_object
 
     apply_job_environment(base_environment, job)
@@ -428,7 +428,7 @@ def run_project_object_job(
             provider=job.provider,
             model=job.model,
         )
-        hardware_ir = HardwareIR.model_validate(response["project_ir"])
+        hardware_ir = HardwareIntermediateRepresentation.model_validate(response["project_ir"])
         hardware_ir = attach_project_object_metadata(hardware_ir)
         project_object = build_project_object(hardware_ir)
         metadata = hardware_ir.assembly_metadata or {}

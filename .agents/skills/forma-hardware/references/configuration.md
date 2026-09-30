@@ -27,7 +27,7 @@ On Windows PowerShell, run the native equivalent:
 ```
 
 The launcher honors explicit environment overrides. OpenCode (or another host
-agent) supplies the model that authors Hardware IR; `forma.compile_project`
+agent) supplies the model that authors Hardware Intermediate Representation; `forma.compile_project`
 then performs deterministic validation, rendering, and persistence. The
 launcher does not set `LLM_PROVIDER` or `LLM_MODEL`. To run only the backend
 manually, set a server-only key:
@@ -89,6 +89,19 @@ The project skill is discovered from the same `.agents/skills` directory. Add th
 ```
 
 Then run `opencode mcp list`. For a protected server, add `"Authorization": "Bearer {env:FORMA_AUTH_TOKEN}"` under `headers`.
+
+## Cursor / Grok Bot
+
+The Cursor plugin registers the local `forma` MCP server and this complete skill.
+For protected cloud use, disable the local server and register a reachable HTTPS
+endpoint with `Authorization: Bearer ${env:FORMA_AUTH_TOKEN}` in Cursor's MCP
+configuration. Cursor must inherit the credential environment variable when it
+starts. See the repository's [plugin installation guide](https://github.com/caid-technologies/Form-OSS/blob/main/docs/cursor-plugin.md).
+
+Use `authoring_agent: "other"` with `forma.compile_project`, or
+`--authoring-agent other` with `scripts/forma.py compile`. Grok Bot deployments
+need either a compatible plugin/skill loader or an authorized command runner;
+do not assume a proprietary API or a particular host installation command.
 
 ## Troubleshooting
 

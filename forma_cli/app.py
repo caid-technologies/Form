@@ -80,7 +80,7 @@ def cmd_version(args: argparse.Namespace) -> int:
         print(f"Latest:         {payload['latest_version'] or 'unavailable'}")
         print(f"Minimum:        {payload['minimum_supported_version'] or 'unavailable'}")
         print(f"Protocol:       {payload['protocol_version'] or 'unavailable'}")
-        print(f"Hardware IR:    {payload['hardware_ir_version'] or 'unavailable'}")
+        print(f"Hardware Intermediate Representation:    {payload['hardware_ir_version'] or 'unavailable'}")
         print(f"Status:         {payload['status']}")
         if result.status == CompatibilityStatus.UPDATE_AVAILABLE:
             print(f"Upgrade:        {result.upgrade_command}")
@@ -1000,7 +1000,7 @@ def build_parser() -> argparse.ArgumentParser:
     build.set_defaults(func=cmd_build)
     imported = subparsers.add_parser(
         "import",
-        help="Import an existing generated HardwareIR project and its native CAD artifacts.",
+        help="Import an existing generated Hardware Intermediate Representation project and its native CAD artifacts.",
     )
     imported.add_argument("source", help="Existing forma-project.json or its containing directory.")
     imported.add_argument("--path", default=None, help="Destination project directory; defaults to the source directory.")

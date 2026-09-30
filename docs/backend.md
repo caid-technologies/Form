@@ -7,7 +7,7 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `apps/api/a2a.py` – A2A broker, REST/WebSocket/TCP/MCP handlers
 - `forma_core/generation.py` – high-level generation API
 - `forma_core/agents/orchestrator.py` – multi-agent pipeline
-- `forma_core/models.py` – Pydantic Hardware IR schemas
+- `forma_core/models.py` – Pydantic Hardware Intermediate Representation schemas
 - `forma_core/validation.py` – rule-based electrical checks
 - `forma_core/llm_providers.py` – provider-agnostic structured LLM adapters
 - `forma_core/image_providers.py` – optional generated product image adapters
@@ -40,10 +40,10 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `GET /api/runtime/config` – canonical user-scoped generation contract used by the frontend (selected/configured LLMs, image behavior, workflow default, and provider-setup requirements)
 
 ## Orchestration layer
-The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `forma_core/agents/orchestrator.py`). Live agent calls go through `forma_core.llm`, which exposes a provider-agnostic structured JSON interface that maps directly to the Hardware IR. If no live provider is configured (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.
+The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `forma_core/agents/orchestrator.py`). Live agent calls go through `forma_core.llm`, which exposes a provider-agnostic structured JSON interface that maps directly to the Hardware Intermediate Representation. If no live provider is configured (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.
 
 ## Reusable core package
-Generation behavior is packaged under `forma_core` so the API server, CLI, smoke tests, workers, and future services all share one implementation. Use `forma_core.generation` for high-level generation, `forma_core.models` for Hardware IR schemas, `forma_core.validation` for electrical checks, `forma_core.llm` for provider resolution and structured generation, `forma_core.images` for image providers and visual prompt construction, `forma_core.runtime` for deployment gating, and `forma_core.selectors` for parsing `provider/model` selectors. The legacy backend core modules are compatibility wrappers.
+Generation behavior is packaged under `forma_core` so the API server, CLI, smoke tests, workers, and future services all share one implementation. Use `forma_core.generation` for high-level generation, `forma_core.models` for Hardware Intermediate Representation schemas, `forma_core.validation` for electrical checks, `forma_core.llm` for provider resolution and structured generation, `forma_core.images` for image providers and visual prompt construction, `forma_core.runtime` for deployment gating, and `forma_core.selectors` for parsing `provider/model` selectors. The legacy backend core modules are compatibility wrappers.
 
 ## A2A layer
 The A2A layer exposes Forma to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted and authenticated in hosted mode. Job metadata uses the primary application database, so local jobs share `SQLITE_DATABASE_URL` with projects and hosted jobs share the Supabase schema. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`; it remains loopback/local-only without a service credential.

@@ -11,7 +11,7 @@ from forma_core.workspaces.projects.iteration import (
     _stored_validation_issues,
     coerce_hardware_ir,
 )
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.objects import normalize_project_namespace
 
 
@@ -23,7 +23,7 @@ class ProjectSelfCorrectionAgent:
 
     def plan_correction(
         self,
-        current_ir: HardwareIR | Dict[str, Any],
+        current_ir: HardwareIntermediateRepresentation | Dict[str, Any],
         *,
         target_namespace: Optional[str] = None,
     ) -> ProjectSelfCorrectionPlan:
@@ -51,7 +51,7 @@ class ProjectSelfCorrectionAgent:
         else:
             instruction = (
                 "Self-review this project namespace, metadata, and generated outputs for consistency. Preserve the current design unless a small "
-                "correction is needed to keep the HardwareIR internally coherent."
+                "correction is needed to keep the HardwareIntermediateRepresentation internally coherent."
             )
 
         return ProjectSelfCorrectionPlan(
@@ -64,12 +64,12 @@ class ProjectSelfCorrectionAgent:
 
     def correct_project(
         self,
-        current_ir: HardwareIR | Dict[str, Any],
+        current_ir: HardwareIntermediateRepresentation | Dict[str, Any],
         *,
         original_prompt: Optional[str] = None,
         project_id: Optional[str] = None,
         target_namespace: Optional[str] = None,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         plan = self.plan_correction(current_ir, target_namespace=target_namespace)
         return self.iterator.iterate_project(
             current_ir,

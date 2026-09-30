@@ -10,7 +10,7 @@ from typing import Iterator
 from forma_core import database
 from forma_core.persistence.providers import create_sqlite_provider
 from forma_core.persistence.repositories import SqlAlchemyRepository
-from forma_core.workspaces.projects.models import HardwareIR, ProjectOverview
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, ProjectOverview
 
 
 OWNER = "chat-project-owner"
@@ -35,8 +35,8 @@ def sqlite_repository() -> Iterator[None]:
             provider.dispose()
 
 
-def project_state(project_id: str) -> HardwareIR:
-    return HardwareIR(
+def project_state(project_id: str) -> HardwareIntermediateRepresentation:
+    return HardwareIntermediateRepresentation(
         overview=ProjectOverview(
             title="Chat sensor",
             description="A sensor generated from chat.",

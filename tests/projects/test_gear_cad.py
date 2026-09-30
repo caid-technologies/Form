@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
 from forma_core.workspaces.projects.gear_benchmark import SpurGearPairBenchmark
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from scripts.development.build_gear_example import example_project
 from tests.projects.test_mechanism_benchmarks import inspect_step
 
@@ -23,8 +23,8 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_gear_example_roundtrips_with_real_meshes_and_shared_tracks():
     text = (ROOT / "examples/spur_gear_pair.json").read_text()
     assert text == (ROOT / "apps/web/public/examples/spur_gear_pair.json").read_text()
-    project = HardwareIR.model_validate_json(text)
-    reloaded = HardwareIR.model_validate_json(project.model_dump_json())
+    project = HardwareIntermediateRepresentation.model_validate_json(text)
+    reloaded = HardwareIntermediateRepresentation.model_validate_json(project.model_dump_json())
     bodies = reloaded.cad_model["articulated_bodies"]
     tracks = reloaded.cad_model["kinematics"]["tracks"]
     assert len(bodies) == len(tracks) == 2
@@ -53,7 +53,7 @@ def test_gear_compile_exports_and_persists_two_bodies():
         native = inspect_step(project.cad_model["path"])
         assert native["valid"] and native["solids"] == 2
         assert set(project.cad_model["exports"]) == {"stl", "obj", "3mf"}
-        reloaded = HardwareIR.model_validate_json(project.model_dump_json())
+        reloaded = HardwareIntermediateRepresentation.model_validate_json(project.model_dump_json())
         assert len(reloaded.cad_model["articulated_bodies"]) == 2
         assert reloaded.cad_model["kinematics"]["mechanism"]["loop"] is True
         assert reloaded.cad_model["stored_sha256"]

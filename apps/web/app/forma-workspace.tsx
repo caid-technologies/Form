@@ -381,7 +381,7 @@ const defaultAgentPipelineSteps: AgentPipelineStep[] = [
     id: "package_project",
     agent: "Project Packager",
     label: "Packaging project artifacts",
-    description: "Building the HardwareIR, diagrams, validation summary, and saved record.",
+    description: "Building the Hardware Intermediate Representation, diagrams, validation summary, and saved record.",
     duration_ms: 3500,
   },
 ];
@@ -390,7 +390,7 @@ const optionalImagePipelineStep: AgentPipelineStep = {
   id: "image_generation",
   agent: "Product Image Agent",
   label: "Generating product visuals",
-  description: "Creating optional concept images from the completed HardwareIR visual spec.",
+  description: "Creating optional concept images from the completed Hardware Intermediate Representation visual spec.",
   duration_ms: 8000,
   optional: true,
 };
@@ -1889,6 +1889,9 @@ export function FormaWorkspace({
   const recoveryJobMissesRef = useRef(new Map<string, { misses: number; retryAfter: number }>());
   const generationRunsRef = useRef(new Map<string, ActiveGenerationRun>());
   const openCodeSessionsRef = useRef<Record<string, OpenCodeSession>>({});
+  const [openCodeRetries, setOpenCodeRetries] = useState<Record<string, {
+    message: string; assistantMessageId: string; projectId?: string | null;
+  }>>({});
   const openCodeCursorsRef = useRef<Record<string, number>>({});
   const openCodePollTimersRef = useRef<Record<string, number>>({});
   const activeChatIdRef = useRef(activeChatId);
@@ -3950,12 +3953,12 @@ export function FormaWorkspace({
     if (generationRunsRef.current.has(activeChatId)) return;
     if (authoringMode) {
       if (selectedImage || selectedDocument) {
-        setGenerationInputNotice("Image and PDF attachments are not available in OpenCode authoring yet.");
+        setGenerationInputNotice("Image and PDF attachments are not available in FormaAgent authoring yet.");
         return;
       }
       const text = (answer ?? prompt).trim();
       if (!text || !openCodeConnectorId) {
-        setGenerationInputNotice(openCodeConnectorId ? "Describe the hardware project you want OpenCode to author." : "OpenCode authoring is not configured for this deployment.");
+        setGenerationInputNotice(openCodeConnectorId ? "Describe the hardware project you want OpenCode to author." : "FormaAgent authoring is not configured for this deployment.");
         return;
       }
       const requestChatId = activeChatId || newBuildChatId();
@@ -4632,7 +4635,7 @@ export function FormaWorkspace({
       const handoffProjectId = currentProjectId;
       const handoffMessage = projectChatInput.trim();
       if (!handoffProjectId || !projectIR || !handoffMessage || !openCodeConnectorId) {
-        if (!openCodeConnectorId) setGenerationInputNotice("OpenCode authoring is not configured for this deployment.");
+        if (!openCodeConnectorId) setGenerationInputNotice("FormaAgent authoring is not configured for this deployment.");
         return;
       }
       const sourceChatId = currentProjectChatId || activeChatId || newBuildChatId();
@@ -4915,7 +4918,7 @@ export function FormaWorkspace({
       if (signal?.aborted) return false;
 
       if (!data?.project_ir || typeof data.project_ir !== "object" || !Array.isArray(data.project_ir.components)) {
-        throw new Error("OpenCode finished, but the project response contains no usable Hardware IR. Try opening the saved project again.");
+        throw new Error("OpenCode finished, but the project response contains no usable Hardware Intermediate Representation. Try opening the saved project again.");
       }
 
       const ir = withProjectResponseMetadata(data.project_ir, data);
@@ -4948,6 +4951,8 @@ export function FormaWorkspace({
     chatId: string;
     sessionId: string;
     commandId: string;
+    message: string;
+    projectId?: string | null;
     assistantMessageId: string;
     run: ActiveGenerationRun;
   }) => {
@@ -4978,7 +4983,13 @@ export function FormaWorkspace({
         const terminalEvent = state.terminalEvent;
         if (terminalEvent) {
           delete openCodePollTimersRef.current[turn.sessionId];
-          if (terminalEvent.kind === "cancelled") delete openCodeSessionsRef.current[turn.chatId];
+          const timedOut = terminalEvent.error?.code === "connector_timeout";
+          if (terminalEvent.kind === "cancelled" || timedOut) delete openCodeSessionsRef.current[turn.chatId];
+          if (timedOut) {
+            setOpenCodeRetries((current) => ({ ...current, [turn.chatId]: {
+              message: turn.message, projectId: turn.projectId, assistantMessageId: turn.assistantMessageId,
+            } }));
+          }
           let resultLoadError: string | null = null;
           let resultLoadNotice: string | null = null;
           if (terminalEvent.kind === "completed") {
@@ -5060,12 +5071,20 @@ export function FormaWorkspace({
   }) => {
     if (generationRunsRef.current.has(chatId)) return;
     if (!openCodeConnectorId) {
-      const error = "OpenCode authoring is not configured for this deployment.";
+      const error = "FormaAgent authoring is not configured for this deployment.";
       updateChatMessage(assistantMessageId, { content: error, status: "error" });
       updateThreadMessage(chatId, assistantMessageId, { content: error, status: "error" });
       setGenerationInputNotice(error);
       return;
     }
+    setOpenCodeRetries((current) => {
+      const next = { ...current };
+      delete next[chatId];
+      return next;
+    });
+    const pending = { content: "Waiting for Forma Agent.", status: "loading" as const };
+    updateThreadMessage(chatId, assistantMessageId, pending);
+    if (activeChatIdRef.current === chatId) updateChatMessage(assistantMessageId, pending);
     const run = beginGenerationRun(projectId ? "project-chat" : "chat", chatId);
     run.assistantMessageId = assistantMessageId;
     try {
@@ -5091,7 +5110,7 @@ export function FormaWorkspace({
       if (activeChatIdRef.current === chatId) {
         setGenerationInputNotice("Sent to OpenCode. Live authoring status will appear here.");
       }
-      pollOpenCodeTurn({ chatId, sessionId: session.session_id, commandId: command.command_id, assistantMessageId, run });
+      pollOpenCodeTurn({ chatId, sessionId: session.session_id, commandId: command.command_id, message, projectId, assistantMessageId, run });
     } catch (error) {
       if (run.cancelled) return;
       const messageText = error instanceof Error ? error.message : "OpenCode could not accept this request.";
@@ -6375,10 +6394,11 @@ export function FormaWorkspace({
                 if (generationRunsRef.current.has(activeChatId)) stopActiveGeneration();
                 else if (pendingContextBuildMessage) stopContextBuildMessage(pendingContextBuildMessage);
               }}
-              canRetryFailedBuild={hostedChatEnabled && Boolean(retryableContextBuildMessage)}
+              canRetryFailedBuild={Boolean(openCodeRetries[activeChatId]) || (hostedChatEnabled && Boolean(retryableContextBuildMessage))}
               retryingFailedBuild={hostedChatEnabled && resettingBuildMessageId === retryableContextBuildMessage?.id}
               onRetryFailedBuild={() => {
-                if (retryableContextBuildMessage) void resetFailedContextBuild(retryableContextBuildMessage);
+                if (openCodeRetries[activeChatId]) void submitOpenCodeTurn({ chatId: activeChatId, ...openCodeRetries[activeChatId] });
+                else if (retryableContextBuildMessage) void resetFailedContextBuild(retryableContextBuildMessage);
               }}
               hasGenerationInput={hasGenerationInput}
               inputValid={generationInputValidation.isValid}
@@ -6503,10 +6523,11 @@ export function FormaWorkspace({
                  isLoading={(hostedChatEnabled || authoringMode) && (isLoading || Boolean(generationRuns[currentProjectChatId]))}
                  canStop={(hostedChatEnabled || authoringMode) && generationRuns[currentProjectChatId]?.kind === "project-chat"}
                 onStop={() => stopActiveGeneration(currentProjectChatId)}
-                canRetryFailedBuild={hostedChatEnabled && Boolean(retryableProjectBuildMessage)}
+                canRetryFailedBuild={Boolean(openCodeRetries[currentProjectChatId]) || (hostedChatEnabled && Boolean(retryableProjectBuildMessage))}
                 retryingFailedBuild={hostedChatEnabled && resettingBuildMessageId === retryableProjectBuildMessage?.id}
                 onRetryFailedBuild={() => {
-                  if (retryableProjectBuildMessage) void resetFailedContextBuild(retryableProjectBuildMessage);
+                  if (openCodeRetries[currentProjectChatId]) void submitOpenCodeTurn({ chatId: currentProjectChatId, ...openCodeRetries[currentProjectChatId] });
+                  else if (retryableProjectBuildMessage) void resetFailedContextBuild(retryableProjectBuildMessage);
                 }}
                  canChat={(hostedChatEnabled || authoringMode) && currentUserOwnsProject}
                  readOnly={chatReadOnly}
@@ -7949,7 +7970,7 @@ function ChatWorkspace({
             <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[rgb(var(--forma-green-rgb)/0.12)] px-2 py-0.5 text-[10px] font-medium text-[rgb(var(--forma-green-rgb))]">
               {chatAvailable ? <MessageSquare className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
               {authoringActive
-                ? "OpenCode authoring"
+                ? "FormaAgent authoring"
                 : chatAvailable
                   ? "Project chat"
                   : "Project"}

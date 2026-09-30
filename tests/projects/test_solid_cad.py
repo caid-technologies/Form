@@ -14,14 +14,14 @@ from pydantic import ValidationError
 from forma_core.persistence.project_artifacts import ProjectArtifactStorage
 from forma_core.workspaces.projects import cad_generation
 from forma_core.workspaces.projects.cad_generation import CadGenerationError, ensure_native_cad_model
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 
 PROJECT_ID = "11111111-1111-4111-8111-111111111111"
 
 
 def cube(labels=True, size=20):
-    return HardwareIR(mechanical={"enclosure_type": "Solid", "mounting_guidance": "None", "manufacturability_rating": "Easy",
+    return HardwareIntermediateRepresentation(mechanical={"enclosure_type": "Solid", "mounting_guidance": "None", "manufacturability_rating": "Easy",
         "cad_operations": [{"shape": "box", "size": {"x_mm": size, "y_mm": size, "z_mm": size}, "axis_labels": labels}]})
 
 
@@ -40,11 +40,11 @@ class SolidCadTests(unittest.TestCase):
             payload = cube().model_dump()
             payload["mechanical"]["cad_operations"][0].update(updates)
             with self.assertRaises(ValidationError):
-                HardwareIR.model_validate(payload)
+                HardwareIntermediateRepresentation.model_validate(payload)
 
     def test_requested_geometry_without_artifacts_is_partial(self):
         self.assertEqual(evaluate_design_outcome(cube()).project_readiness, "partial")
-        self.assertEqual(evaluate_design_outcome(HardwareIR()).project_readiness, "draft")
+        self.assertEqual(evaluate_design_outcome(HardwareIntermediateRepresentation()).project_readiness, "draft")
 
     def test_preview_mesh_serializes_to_obj_and_3mf(self):
         mesh = {

@@ -14,7 +14,7 @@ from forma_core.persistence.models import (
 )
 from forma_core.persistence.project_reconciliation import reconcile_sqlite
 from forma_core.persistence.providers.sqlite import create_sqlite_provider
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.state import ProjectRevision
 
 
@@ -106,7 +106,7 @@ class ProjectReconciliationTests(unittest.TestCase):
     def test_canonical_only_projects_rebuild_missing_compatibility_projection(self) -> None:
         project_id = uuid4()
         revision_id = uuid4()
-        state = HardwareIR.model_validate({})
+        state = HardwareIntermediateRepresentation.model_validate({})
         revision = ProjectRevision(
             state=state,
             components=[],

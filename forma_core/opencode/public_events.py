@@ -20,6 +20,8 @@ _PATH_PATTERN = re.compile(r"(?:[A-Za-z]:[\\/]|/Users/|/home/|/tmp/|\\\\|\.{1,2}
 _INTERNAL_PATTERN = re.compile(r"(?i)(?:^|\s)(?:diff|patch|shell|command|tool|reasoning|traceback|exception)\s*[:=]")
 _PUBLIC_KINDS = {kind.value for kind in OpenCodeEventKind}
 _ERROR_MESSAGES = {
+    "opencode_lease_expired": "Forma Agent lost its command lease. Submit the request again.",
+    "connector_timeout": "Forma Agent did not reconnect within five minutes. Retry this request when it is available.",
     "connector_unavailable": "Forma Agent is unavailable.",
     "command_failed": "Forma Agent could not complete the project request.",
     "validation_failed": "The project failed Forma validation.",
@@ -58,7 +60,7 @@ def project_public_event(
         validation=event.validation if kind in {OpenCodeEventKind.COMPLETED.value, OpenCodeEventKind.VALIDATING.value} else None,
         artifact_ids=event.artifact_ids if kind == OpenCodeEventKind.COMPLETED.value else (),
         error=error,
-        diagnostic=event.diagnostic if kind == OpenCodeEventKind.FAILED.value else None,
+        diagnostic=event.diagnostic if kind in {OpenCodeEventKind.FAILED.value, OpenCodeEventKind.CANCELLED.value} else None,
         created_at=created_at or datetime.now(timezone.utc),
     )
 
