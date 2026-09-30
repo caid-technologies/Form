@@ -84,3 +84,31 @@ paired connector update for specific failure categories. The new connector still
 stops on an older gateway's generic 403. No environment changes are required.
 Validate the additional RPC with `psql -v ON_ERROR_STOP=1 -f tests/opencode/lease_failures.sql`
 in a disposable database. Real mini-PC reconnect testing remains a rollout check.
+
+## Concurrent sessions and serialized command claims
+
+A connector may run separate sessions concurrently, but each connector/session pair
+can hold at most one unexpired command lease. Later queued work stays queued until
+the current command completes, is cancelled, or its lease expires. At expiry the
+oldest eligible command is reclaimed with a fresh token and incremented attempt
+count. FIFO order uses `created_at` with `command_id` as a deterministic tie-breaker.
+
+Supabase performs the check and claim inside `claim_opencode_command`, locking the
+parent session and then its pending command rows. This coordinates concurrent
+pollers, lease renewals, cancellation, and timeout reconciliation without blocking
+unrelated sessions. SQLite performs the same check and update in one immediate
+write transaction. Command submission still returns immediately; no request waits
+for authoring to complete.
+
+Apply `supabase/migrations/20260930163207_opencode_serial_claims.sql` before deploying
+the gateway, then update all gateway instances before enabling the connector's
+continuous scheduler (local-server-config #61). The migration adds one partial
+queue index and one backend-only function; existing commands are preserved. No new
+environment variable is required. `FORMA_MAX_OPENCODE_INSTANCES` remains the local
+capacity setting and is shared by the scheduler and process supervisor.
+
+Verification includes `tests/opencode/test_command_claims.py`, the disposable SQL
+fixture `tests/opencode/serial_claims.sql`, and a real Postgres multi-connection test
+`tests/opencode/postgres_claim_concurrency.py`. CI runs the latter against its
+`opencode_test` service to prove same-session blocking, independent-session progress,
+concurrent expired-lease reclaim, and a heartbeat renewal racing a claim.
