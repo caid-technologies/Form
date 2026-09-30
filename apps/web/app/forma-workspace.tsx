@@ -5236,10 +5236,17 @@ export function FormaWorkspace({
     setActiveTab("overview");
     setRouteProjectError(null);
     if (storedMessages.length) {
-      setChatThreads((current) => ({ ...current, [chatId]: storedMessages }));
-      setChatMessages(storedMessages);
+      // The route transition can finish alongside a reply. Merge with the
+      // latest state so a saved "Thinking…" snapshot cannot replace that reply.
+      setChatThreads((current) => ({
+        ...current,
+        [chatId]: mergeFetchedChatMessages(storedMessages, current[chatId] || [], true),
+      }));
+      setChatMessages((current) => activeChatId === chatId
+        ? mergeFetchedChatMessages(storedMessages, current, true)
+        : storedMessages);
     } else {
-      setChatMessages(initialChatMessages());
+      setChatMessages((current) => activeChatId === chatId ? current : initialChatMessages());
     }
 
     if (!chatSourcesReady) {

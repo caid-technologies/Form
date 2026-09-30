@@ -102,6 +102,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       // must survive the empty-to-active composer transition and reply render.
       await input.setInputFiles(png);
       backend.releaseFirst();
+      // Let the new chat route settle before asserting the reply or reloading.
+      await expect(page).toHaveURL(new URL(`/chat/${backend.contextRequests[0].body.conversation_id}`, baseURL!).href, { timeout: 60_000 });
       await expect(page.getByText("Context reply 1", { exact: true })).toBeVisible();
       await expect(page.getByAltText("Attached prompt image")).toBeVisible();
       await expect(attach).toBeVisible();
@@ -113,6 +115,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       expect(backend.contextRequests[1].body.attachments[0].kind).toBe("image");
       await expect(page.getByText("Context reply 2", { exact: true })).toBeVisible();
       await page.reload();
+      await expect(page.getByText("Context reply 2", { exact: true })).toBeVisible();
       await expect(attach).toBeVisible();
       await input.setInputFiles(pdf);
       await expect(page.getByRole("button", { name: "Remove PDF" })).toBeVisible();
