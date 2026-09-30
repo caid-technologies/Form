@@ -160,7 +160,7 @@ async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArgum
     if name == "forma.opencode.generate_image":
         if not isinstance(arguments, GenerateImageArguments):
             raise ValueError("Image arguments are required.")
-        return await run_in_threadpool(generate_project_image, arguments, capability)
+        return await run_in_threadpool(generate_project_image, arguments, capability, before_save=lambda: _assert_session_active(capability))
     assert isinstance(arguments, McpToolArguments)
     project_id = capability.project_id
     owner_user_id = capability.owner_user_id
@@ -182,7 +182,7 @@ async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArgum
         if existing is not None:
             return _tool_result(existing.state, project_id, _revision_identifier(existing))
         project = HardwareIntermediateRepresentation.model_validate({"components": [], "nets": []})
-        result = await run_in_threadpool(_compile, project, project_id, user_context)
+        result = await run_in_threadpool(_compile, project, project_id, user_context, capability)
         return ProjectToolResult.model_validate(result).model_dump(mode="json")
     if name == "forma.opencode.read_project":
         revision = get_latest_project_revision(project_id, owner_user_id)
@@ -206,12 +206,23 @@ async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArgum
     if name == "forma.opencode.validate_project":
         return _validation_result(project)
     if name in {"forma.opencode.compile_project", "forma.opencode.update_project"}:
-        result = await run_in_threadpool(_compile, project, project_id, user_context)
+        result = await run_in_threadpool(_compile, project, project_id, user_context, capability)
         return ProjectToolResult.model_validate(result).model_dump(mode="json")
     raise PermissionError("The requested tool is not part of the project-only surface.")
 
 
-def _compile(project: HardwareIntermediateRepresentation, project_id: str, user_context: UserContext) -> dict[str, object]:
+def _assert_session_active(capability: ConnectorCapability) -> None:
+    # Resolve at call time to avoid the gateway/router import cycle.
+    from fastapi import HTTPException
+    from apps.api.opencode_api import _scoped_connector_session
+    try:
+        _scoped_connector_session(capability)
+    except HTTPException as exc:
+        raise PermissionError("The authoring session is no longer active.") from exc
+
+
+def _compile(project: HardwareIntermediateRepresentation, project_id: str, user_context: UserContext,
+             capability: ConnectorCapability | None = None) -> dict[str, object]:
     from forma_core.workspaces.projects.state import ProjectStateError
     # Images are authored by the server tool; a subsequent IR edit cannot erase
     # them, replace their provenance or make the agent echo their base64 payloads.
@@ -239,6 +250,8 @@ def _compile(project: HardwareIntermediateRepresentation, project_id: str, user_
     existing = get_project_revision_by_source_job(project_id, user_context.owner_user_id or "", source_job_id)
     if existing is not None:
         return _tool_result(existing.state, project_id, _revision_identifier(existing))
+    if capability is not None:
+        _assert_session_active(capability)
     _persist_mcp_compile(
         project,
         {"project_id": project_id, "visibility": "private", "authoring_agent": "opencode", "source_job_id": source_job_id},

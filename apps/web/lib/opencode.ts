@@ -14,7 +14,7 @@ export type OpenCodeSession = {
   connector_id: string;
   project_id: string;
   owner_user_id: string;
-  status: "active" | "cancelled" | "completed";
+  status: "active" | "cancelled" | "completed" | "failed";
 };
 
 export type OpenCodeCommand = {
@@ -83,6 +83,9 @@ export function reduceOpenCodeTurn(
       : event.kind === "failed"
         ? event.error?.message || "Forma Agent could not complete this request."
          : "Forma Agent was stopped.";
+    if (event.kind === "failed" && event.error?.code === "connector_timeout") {
+      content += `\n\nCode: ${event.error.code}`;
+    }
     if (event.kind === "completed" && event.design_outcome) {
       const notice = openCodeDesignNotice(event.design_outcome.project_readiness);
       if (notice) content += `\n\n${notice}`;
@@ -117,7 +120,7 @@ function nullableStringField(value: Record<string, unknown>, name: string): stri
 function parseSession(value: unknown): OpenCodeSession {
   const item = record(value);
   const status = stringField(item, "status");
-  if (status !== "active" && status !== "cancelled" && status !== "completed") throw new Error("Forma Agent returned an invalid session status.");
+  if (status !== "active" && status !== "cancelled" && status !== "completed" && status !== "failed") throw new Error("Forma Agent returned an invalid session status.");
   return {
     session_id: stringField(item, "session_id"),
     connector_id: stringField(item, "connector_id"),

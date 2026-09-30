@@ -21,6 +21,7 @@ class OpenCodeSessionStatus(str, Enum):
     ACTIVE = "active"
     CANCELLED = "cancelled"
     COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class OpenCodeCommandStatus(str, Enum):

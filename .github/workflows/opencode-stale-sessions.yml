@@ -1,0 +1,30 @@
+name: OpenCode stale session persistence
+on:
+  pull_request:
+    paths:
+      - 'forma_core/opencode/**'
+      - 'apps/api/opencode_api.py'
+      - 'supabase/migrations/*opencode*'
+      - 'tests/opencode/**'
+      - '.github/workflows/opencode-stale-sessions.yml'
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: opencode_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Verify migration, timeout, reconnect, cancellation and grants
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d opencode_test -v ON_ERROR_STOP=1 -f tests/opencode/stale_sessions.sql
