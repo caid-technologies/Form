@@ -12,6 +12,11 @@ on:
       - ".vercelignore"
       - "tests/tooling/test_core_package.py"
       - "tests/projects/test_pdf_context*.py"
+      - "tests/projects/test_project_deletion.py"
+      - "tests/providers/test_runtime_contract.py"
+      - "tests/providers/test_llm_runtime.py"
+      - "tests/opencode/test_authoring_access.py"
+      - "tests/observability/test_logs.py"
       - ".github/workflows/backend-deployment.yml"
   push:
     branches: [main]
@@ -25,6 +30,11 @@ on:
       - ".vercelignore"
       - "tests/tooling/test_core_package.py"
       - "tests/projects/test_pdf_context*.py"
+      - "tests/projects/test_project_deletion.py"
+      - "tests/providers/test_runtime_contract.py"
+      - "tests/providers/test_llm_runtime.py"
+      - "tests/opencode/test_authoring_access.py"
+      - "tests/observability/test_logs.py"
       - ".github/workflows/backend-deployment.yml"
   workflow_dispatch:
 
@@ -55,3 +65,16 @@ jobs:
           tests.tooling.test_core_package.CorePackageTests.test_root_main_shim_exports_backend_app_for_legacy_vercel_detection
           tests.projects.test_pdf_context
           tests.projects.test_pdf_context_ingestion
+      - name: Verify runtime availability, purge recovery, and serverless logging
+        env:
+          FORMA_DEV_MODE: "true"
+          DATABASE_BACKEND: "sqlite"
+        run: >-
+          uv run --project apps/api --frozen --no-dev --with pytest==9.1.1 python -m pytest -q
+          tests/opencode/test_authoring_access.py
+          tests/providers/test_runtime_contract.py
+          tests/providers/test_llm_runtime.py
+          tests/projects/test_project_deletion.py
+          tests/observability/test_logs.py
+          tests/api/test_project_deletion_auth.py
+          tests/jobs/test_project_deletion_jobs.py

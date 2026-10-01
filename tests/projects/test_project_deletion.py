@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from apps.api import project_deletion
 from forma_core import database
-from forma_core.persistence.models import DBProjectContributionSnapshot
+from forma_core.persistence.models import DBGeneratedProject, DBProject, DBProjectContributionSnapshot
 from forma_core.persistence.providers import create_sqlite_provider
 from forma_core.persistence.repositories import SqlAlchemyRepository
 
@@ -218,6 +218,66 @@ class ProjectDeletionLifecycleTests(unittest.TestCase):
         latest = database.get_latest_project_deletion_audit(self.project_id)
         self.assertEqual("purge_completed", latest.action)
         self.assertEqual("succeeded", latest.status)
+
+    def _diverge_deletion_records(self, canonical_status: str, started_at: str | None) -> None:
+        with self.provider.session_factory() as session, session.begin():
+            identity = session.query(DBProject).filter_by(project_id=self.project_id).one()
+            identity.status = canonical_status
+            identity.purge_started_at = started_at
+            identity.purge_after = None
+            legacy = session.query(DBGeneratedProject).filter_by(project_id=self.project_id).one()
+            legacy.status = "deletion_failed"
+            legacy.purge_started_at = "2000-01-02T00:00:00Z"
+            legacy.purge_after = "2000-01-01T00:00:00Z"
+            legacy.deletion_error = "StorageApiError"
+
+    def test_due_purge_reclaims_canonical_lease_when_legacy_state_disagrees(self) -> None:
+        stale_claim = "2000-01-01T00:00:00Z"
+        self._diverge_deletion_records("purging", stale_claim)
+
+        def delete_images(project_id):
+            identity = database.get_project_identity(project_id)
+            legacy = database.get_generated_project(project_id, include_deleted=True)
+            self.assertNotEqual(stale_claim, identity["purge_started_at"])
+            self.assertEqual(identity["purge_started_at"], legacy.purge_started_at)
+            self.assertEqual("purging", legacy.status)
+            return 1
+
+        with (
+            patch.object(project_deletion, "delete_project_images", side_effect=delete_images) as images,
+            patch.object(project_deletion, "delete_project_videos", return_value=0),
+            patch.object(project_deletion.JOB_STORE, "delete_project_jobs", return_value=0),
+        ):
+            results = project_deletion.purge_due_projects()
+
+        self.assertEqual("purged", results[0]["status"])
+        images.assert_called_once_with(self.project_id)
+        self.assertIsNone(database.get_project_identity(self.project_id))
+        self.assertIsNone(database.get_generated_project(self.project_id, include_deleted=True))
+
+    def test_stale_legacy_state_cannot_purge_a_restored_canonical_project(self) -> None:
+        self._diverge_deletion_records("active", None)
+        with patch.object(project_deletion, "delete_project_images") as images:
+            with self.assertRaisesRegex(RuntimeError, "not scheduled for deletion"):
+                project_deletion.purge_project(self.project_id)
+        images.assert_not_called()
+        self.assertEqual("active", database.get_project_identity(self.project_id)["status"])
+
+    def test_stale_legacy_state_cannot_steal_a_current_canonical_purge(self) -> None:
+        self._diverge_deletion_records("purging", project_deletion.iso_timestamp())
+        with patch.object(project_deletion, "delete_project_images") as images:
+            with self.assertRaisesRegex(RuntimeError, "already running"):
+                project_deletion.purge_project(self.project_id)
+        images.assert_not_called()
+
+    def test_failed_canonical_claim_does_not_fall_back_to_legacy_record(self) -> None:
+        self._diverge_deletion_records("purging", "2000-01-01T00:00:00Z")
+        claimed = database.update_project_deletion_state(
+            self.project_id, owner_user_id=self.owner_id, allowed_statuses=["deletion_failed"],
+            updates={"status": "purging"},
+        )
+        self.assertIsNone(claimed)
+        self.assertEqual("deletion_failed", database.get_generated_project(self.project_id, include_deleted=True).status)
 
     def test_consent_snapshot_is_unlinked_when_purge_succeeds(self) -> None:
         consent = project_deletion.grant_contribution_consent(

@@ -115,7 +115,7 @@ def resolve_runtime_contract(
     authoring_access: bool = False,
 ) -> Dict[str, Any]:
     """Resolve all client-facing generation decisions from the active environment."""
-    resolved_llm_config = llm_config or HardwarePipelineOrchestrator(settings=settings).get_debug_config()
+    resolved_llm_config = llm_config or HardwarePipelineOrchestrator(settings=settings).get_debug_config(raise_on_preflight=False)
     runtime = resolve_llm_runtime_config(settings=settings)
     llm_options = _resolved_llm_options(runtime, settings=settings)
     selected_llm = next((option for option in llm_options if option["selected"]), None)
