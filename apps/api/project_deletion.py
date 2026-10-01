@@ -16,6 +16,7 @@ from forma_core.database import (
     add_project_deletion_audit,
     anonymize_project_contribution_consent,
     anonymize_project_contribution_snapshot,
+    get_generated_project,
     get_project_identity,
     get_project_contribution_consent,
     get_user_settings,
@@ -377,17 +378,16 @@ def restore_project(project_id: str, user_id: str) -> Any:
 
 
 def purge_project(project_id: str) -> Dict[str, Any]:
-    identity = get_project_identity(project_id)
-    lifecycle_owner = _attr(identity, "owner_user_id") if identity else None
-    try:
-        resolved = resolve_project_for_read(project_id, lifecycle_owner, include_deleted=True)
-    except LookupError:
-        resolved = None
-    project = resolved.project if resolved is not None else identity
+    # Lifecycle claims must use the same authoritative record as the repository
+    # update. The read resolver may return a legacy content projection whose
+    # status or lease timestamp differs from the canonical identity.
+    project = get_project_identity(project_id)
+    if project is None:
+        project = get_generated_project(project_id, include_deleted=True)
     if not project:
         return {"project_id": project_id, "status": "purged", "already_absent": True}
-    owner_user_id = _attr(project, "owner_user_id") or (resolved.owner_user_id if resolved else None)
-    status = _attr(project, "status") or (resolved.status if resolved else None)
+    owner_user_id = _attr(project, "owner_user_id")
+    status = _attr(project, "status")
     if status not in {"deletion_pending", "deletion_failed", "purging"}:
         raise RuntimeError("Project is not scheduled for deletion.")
 

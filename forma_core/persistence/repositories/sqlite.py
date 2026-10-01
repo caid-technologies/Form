@@ -1014,6 +1014,11 @@ class SqlAlchemyRepository:
                 session.expunge(identity)
                 return identity
 
+            # An existing canonical identity that failed the ownership/status/
+            # lease check cannot be bypassed through its legacy projection.
+            if session.query(DBProject.project_id).filter(DBProject.project_id == project_id).first() is not None:
+                return None
+
             query = session.query(DBGeneratedProject).filter(
                 DBGeneratedProject.project_id == project_id,
                 DBGeneratedProject.status.in_(allowed_statuses),

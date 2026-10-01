@@ -390,7 +390,7 @@ def _resolved_client_runtime_config(
     settings: Optional[ResolvedIntegrationSettings] = None,
     user: Optional[UserContext] = None,
 ) -> tuple[Dict[str, Any], Dict[str, Any]]:
-    llm_config = HardwarePipelineOrchestrator(settings=settings).get_debug_config()
+    llm_config = HardwarePipelineOrchestrator(settings=settings).get_debug_config(raise_on_preflight=False)
     image_config = get_image_output_debug_config(settings=settings)
     contract = resolve_runtime_contract(
         llm_config=llm_config,

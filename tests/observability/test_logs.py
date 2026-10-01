@@ -77,6 +77,23 @@ class BackendLogCoreTests(unittest.TestCase):
 
         self.assertEqual(Path(tmp_dir, "forma-backend.log").resolve(), fallback)
 
+    def test_vercel_logging_uses_tmp_without_attempting_read_only_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, mock.patch.dict(os.environ, {
+            "BACKEND_LOG_FILE": "/var/task/forma-backend.log", "VERCEL": "1", "TMPDIR": tmp_dir,
+        }, clear=True), mock.patch.object(logging_config, "_attach_file_handlers") as attach:
+            with self.assertNoLogs(logging_config.__name__, level="WARNING"):
+                logging_config.configure_backend_logging()
+            expected = Path(tmp_dir, "forma-backend.log").resolve()
+            self.assertEqual(expected, attach.call_args.args[0])
+            self.assertEqual(str(expected), os.environ["BACKEND_LOG_FILE"])
+            attach.assert_called_once()
+
+    def test_serverless_logging_preserves_path_already_inside_tmp(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir, mock.patch.dict(os.environ, {
+            "VERCEL": "1", "TMPDIR": tmp_dir,
+        }, clear=True):
+            self.assertIsNone(logging_config._tmp_log_fallback_path(Path(tmp_dir, "logs/backend.log")))
+
     def test_file_loggers_share_one_non_rotating_handler(self) -> None:
         loggers = [
             logging.getLogger(),
@@ -118,9 +135,9 @@ class BackendLogCoreTests(unittest.TestCase):
             env = {
                 "BACKEND_LOG_FILE": "forma-backend.log",
                 "TMPDIR": tmp_dir,
-                "VERCEL": "1",
+                "AWS_LAMBDA_FUNCTION_NAME": "forma",
             }
-            with mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.dict(os.environ, env, clear=True):
                 with mock.patch.object(logging_config, "_attach_file_handlers", side_effect=fake_attach_file_handlers):
                     logging_config.configure_backend_logging()
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +12,7 @@ from apps.api import main, opencode_api
 from apps.api.auth import UserContext, has_opencode_authoring_access
 from apps.api.hosted_chat import require_hosted_chat_enabled
 from forma_core.opencode.store import OpenCodeStore
+from forma_core.llm import LLMProviderPreflightError, LLMProviderValidation
 
 
 def user_context(provider="clerk", *, authenticated=True, owner="new-user", admin=False):
@@ -194,3 +195,58 @@ def test_runtime_config_enables_authoring_only_for_signed_in_users(authoring_cli
     assert signed_in.json()["deployment"]["authoring_mode_enabled"] is True
     assert signed_in.json()["deployment"]["authoring_access"] is True
     assert signed_out.json()["deployment"]["authoring_access"] is False
+
+
+def test_provider_outage_does_not_block_runtime_config_or_opencode(authoring_client):
+    client, _ = authoring_client
+    validation = LLMProviderValidation(
+        provider="vertex", requested_model="gemini-3.6-flash", actual_model=None,
+        requested_model_available=False, strict_mode=True, fallback_active=False,
+        model_availability_checked=True,
+        validation_error="403 BILLING_DISABLED api_key=sk-testsecret123456",
+    )
+    provider = SimpleNamespace(
+        is_configured=True, model_name=validation.requested_model,
+        validate_configured_model=Mock(return_value=validation),
+    )
+    with (
+        patch.dict(os.environ, {
+            "FORMA_DEV_MODE": "false", "LLM_PROVIDER": "vertex",
+            "LLM_MODEL": validation.requested_model, "VERTEX_AI_PROJECT": "test-project",
+            "FORMA_OPENCODE_CONNECTOR_ID": "mini-pc-1",
+        }),
+        patch.object(main, "_runtime_config_settings", return_value=None),
+        patch("forma_core.agents.orchestrator.build_llm_provider", return_value=provider),
+        patch.object(main, "get_image_output_debug_config", return_value={"request_capable": False}),
+        patch.object(main, "get_database_config", return_value={"client": "supabase"}),
+        patch.object(main.GMICloudProvider, "get_debug_config", return_value={}),
+        patch.object(main.FireworksVideoReviewClient, "get_debug_config", return_value={}),
+    ):
+        signed_in = client.get("/runtime/config", headers={"Authorization": "Bearer new-user"})
+        signed_out = client.get("/runtime/config")
+        # Describing unavailable generation must not weaken execution preflight.
+        with pytest.raises(LLMProviderPreflightError, match="BILLING_DISABLED"):
+            main.HardwarePipelineOrchestrator().generate_project("Build a bracket")
+
+    for response in (signed_in, signed_out):
+        assert response.status_code == 200, response.text
+        contract = response.json()
+        assert contract["generation"]["ready"] is False
+        assert contract["generation"]["available"] is False
+        assert "BILLING_DISABLED" in contract["generation"]["reason"]
+        assert "sk-testsecret123456" not in response.text
+        assert contract["provider_setup"]["llm_required"] is True
+        assert contract["deployment"]["opencode_connector_id"] == "mini-pc-1"
+    assert signed_in.json()["deployment"]["authoring_access"] is True
+    assert signed_out.json()["deployment"]["authoring_access"] is False
+    session = client.post(
+        "/opencode/sessions", json={"connector_id": "mini-pc-1"},
+        headers={"Authorization": "Bearer new-user"},
+    )
+    assert session.status_code == 201, session.text
+    command = client.post(
+        f"/opencode/sessions/{session.json()['session_id']}/commands",
+        json={"message": "Build a bracket", "idempotency_key": "provider-outage"},
+        headers={"Authorization": "Bearer new-user"},
+    )
+    assert command.status_code == 201, command.text

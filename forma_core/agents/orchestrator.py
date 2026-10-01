@@ -23,12 +23,14 @@ from forma_core.llm import (
     LLMProviderConfigError,
     LLMProviderInputError,
     LLMProviderOutputError,
+    LLMProviderPreflightError,
     LLMProviderValidation,
     LLMRuntimeConfig,
     build_llm_provider,
     enforce_production_llm_preflight,
     resolve_llm_runtime_config,
 )
+from forma_core.debug import redact_debug_text
 from forma_core.observability import serialize_for_langfuse, start_observation, update_observation
 from forma_core.agents.pipeline import (
     GenerationStageRecord,
@@ -673,10 +675,24 @@ class HardwarePipelineOrchestrator:
         self.persist_project = persist_project
         self._active_generation_metadata: Dict[str, Any] = {}
 
-    def get_debug_config(self) -> Dict[str, Any]:
+    def get_debug_config(self, *, raise_on_preflight: bool = True) -> Dict[str, Any]:
         """Return LLM provider resolution details without exposing credentials."""
+        validation = self.llm_provider.validate_configured_model(raise_on_strict=False)
+        debug = validation.as_debug_dict()
+        try:
+            enforce_production_llm_preflight(validation)
+        except LLMProviderPreflightError as exc:
+            if raise_on_preflight:
+                raise
+            # Configuration reads must still describe unavailable providers so
+            # independent OpenCode authoring can initialize. Execution retains
+            # the strict preflight in validate_configured_model().
+            debug["live_generation_enabled"] = False
+            debug["validation_error"] = redact_debug_text(str(exc))
+        else:
+            self.model_name = validation.actual_model or self.llm_provider.model_name
         return {
-            **self.validate_configured_model(raise_on_strict=False).as_debug_dict(),
+            **debug,
             "runtime": self.runtime_config.as_debug_dict(),
         }
 

@@ -28,6 +28,8 @@ Before purge, withdrawal deletes the pending snapshot. At purge, an eligible san
 
 Alert when `deletion_failed` events occur or a due `deletion_pending`/`purging` project remains beyond one worker interval. Retry by allowing the worker to run; cleanup stages are prefix-scoped and idempotent. Investigators may use the admin audit route, application logs, and the content-free `error_type` without exposing project content.
 
+Purge claims use the canonical `projects` lifecycle and lease timestamp when that row exists. A legacy `generated_projects` row can still identify overdue work, but its stale status cannot override a restored canonical project or an active purge claim. A stale canonical claim is reclaimed using its own timestamp, and the successful claim synchronizes the legacy projection before storage cleanup. Projects with only a legacy row retain the legacy cleanup path.
+
 ## Backups and recovery
 
 Production owners must configure encrypted backup expiry no longer than the approved retention schedule and document provider-specific expiration. Deleted content in an immutable backup is unavailable to normal product systems and expires with that backup. Any disaster-recovery restore must replay deletion/audit records and complete due purges before user traffic or downstream dataset export resumes. Legal/security preservation exceptions must be narrowly approved, access-restricted, time-bound, and excluded from research use.
