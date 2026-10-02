@@ -17,6 +17,15 @@ def register_parser(subparsers: argparse._SubParsersAction) -> None:
     """Register provider-neutral migration discovery, planning and rebuild package commands."""
     parser = subparsers.add_parser("cad-migrate", help="Validate CAD feature intent and generate native rebuild programs.")
     commands = parser.add_subparsers(dest="migration_command", required=True)
+    extract = commands.add_parser("extract-inventor", help="Read the saved active Inventor part through Windows COM.")
+    extract.add_argument("--output", type=Path, required=True)
+    extract.set_defaults(func=run)
+    verify = commands.add_parser("verify", help="Compare a native execution report with its source history.")
+    verify.add_argument("history", type=Path)
+    verify.add_argument("evidence", type=Path)
+    verify.add_argument("--target", choices=("onshape", "nx", "fusion360"), required=True)
+    verify.add_argument("--output", type=Path)
+    verify.set_defaults(func=run)
     for command in ("schema", "routes"):
         child = commands.add_parser(command)
         child.set_defaults(func=run)
@@ -82,9 +91,26 @@ def run(args: argparse.Namespace) -> int:
         return 0
     if args.output and args.output.exists():
         raise ValueError("Output already exists; choose a new path")
+    if args.migration_command == "extract-inventor":
+        from .inventor import extract_active
+        content = history_bytes(extract_active())
+        with args.output.open("xb") as output:
+            output.write(content)
+        return 0
     if args.history.stat().st_size > 2 * 1024 * 1024:
         raise ValueError("History exceeds 2 MiB")
     model = MigrationModel.model_validate_json(args.history.read_bytes())
+    if args.migration_command == "verify":
+        from .evidence import NativeEvidence, compare_evidence
+        if args.evidence.stat().st_size > 2 * 1024 * 1024:
+            raise ValueError("Evidence exceeds 2 MiB")
+        report = compare_evidence(model, args.target, NativeEvidence.model_validate_json(args.evidence.read_bytes()))
+        if args.output:
+            with args.output.open("xb") as output:
+                output.write(_json(report))
+        else:
+            print(_json(report).decode(), end="")
+        return 0 if report["status"] == "checks_passed" else 2
     report = plan_migration(model, args.target, approve_inferred=args.approve_inferred)
     if args.migration_command == "plan":
         if args.output:

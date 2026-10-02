@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from .evidence import GeometryMetrics
 
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,39}$")]
 Text = Annotated[str, StringConstraints(max_length=4096)]
@@ -20,7 +21,7 @@ class SourceDocument(Contract):
     """Source identity supplied by the extraction process, never an invented verification."""
     name: Text
     sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
-    system: Literal["solidworks", "creo", "inventor"]
+    system: Literal["solidworks", "creo", "inventor", "form"]
     version: Text = "unspecified"
     units: Literal["mm", "cm", "m", "in"] = "mm"
 
@@ -64,6 +65,7 @@ class MigrationModel(Contract):
     version: Literal[1] = 1
     source: SourceDocument
     metadata: Metadata = Field(default_factory=Metadata)
+    source_geometry: GeometryMetrics | None = None
     parameters: dict[Identifier, Number] = Field(default_factory=dict, max_length=200)
     features: list[Feature] = Field(min_length=1, max_length=200)
     inventory_complete: bool = False
