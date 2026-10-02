@@ -166,7 +166,9 @@ forma-core cad-migrate verify source-history.json --target fusion360 \
 `verify` binds target, source SHA and normalized-history SHA, then checks the feature
 inventory, every named parameter result, metadata, one solid body, volume and
 absolute bounds. Fixed tolerances are 0.01 mm on bounds and the larger of 0.01 mm³
-or 0.1% on volume. A missing source baseline cannot pass. Exit 0 means reported
+or 0.1% on volume. A missing source baseline cannot pass offline verification. In a Form worker
+run, Fusion can independently measure the saved source STEP; the project service
+accepts that baseline only when its hash matches the saved source artifact. Exit 0 means reported
 checks passed; exit 2 means repair is needed. Reports are user-supplied evidence,
 not attested execution, and `geometry_equivalence_verified` remains false.
 NX and Onshape can use the same evidence schema with a customer-native measurement
@@ -232,7 +234,7 @@ Vendor references used to define the boundary:
 
 ## Customer-controlled execution worker
 
-Form can queue a rebuild for a customer worker. Install this repository's trusted
+With the project integration in PR #570, Form can queue a rebuild for a customer worker. Install this repository's trusted
 Python package in the CAD runtime, supply an existing Form owner credential in
 `FORMA_CAD_TOKEN`, and set `FORMA_CAD_API_URL` and `FORMA_CAD_PROJECT_ID` in the
 customer environment. Credentials are never stored in a rebuild package.
@@ -240,7 +242,11 @@ customer environment. Credentials are never stored in a rebuild package.
 For Fusion, use a Fusion Python script whose `run(context)` calls
 `forma_core.cad_migrations.worker.run(context)`. It claims one queued Fusion job,
 regenerates the supported program locally, runs on Fusion's script thread, and
-returns STEP/F3D bytes plus parameter/geometry/metadata evidence to Form. Invoke
+returns STEP/F3D bytes plus parameter/geometry/metadata evidence to Form. It
+also returns a millimeter tessellation of the rebuilt body and, when a saved
+source STEP is attached, imports it into a temporary document to measure and
+tessellate the source before closing that document without saving. The original
+bytes remain untouched. Invoke
 the worker again for the next job. Fusion and the Form package must be installed
 in the customer's CAD environment; this is not headless Fusion.
 
@@ -261,3 +267,17 @@ hashes and bounds uploads. Source/import file hashes bind reviewed history to th
 actual preserved bytes. A native output upload remains customer-reported evidence,
 not attestation or a CAD-kernel topology comparison. Licensed pilot testing remains
 required before release.
+
+
+Native previews use `forma-cad-mesh` JSON with `units: "mm"`, flat XYZ `vertices`
+and triangle-index `faces`. Optional `source.mesh.json` and `target.mesh.json`
+must be named and hashed in `native_artifacts`, alongside native/STEP outputs
+(maximum four files). Each body is bounded to 100,000 tessellation nodes; the
+project service validates finite coordinates, triangle indices and upload limits.
+These display meshes do not certify topology equivalence.
+
+Fusion API references for source measurement and tessellation:
+- [Import into a new document](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_ImportManager_importToNewDocument.htm)
+- [Create a mesh calculator](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_MeshManager_createMeshCalculator.htm)
+- [Triangle mesh coordinates](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_TriangleMesh_nodeCoordinates.htm)
+- [Triangle indices](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_TriangleMesh_nodeIndices.htm)

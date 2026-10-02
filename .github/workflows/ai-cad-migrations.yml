@@ -7,6 +7,7 @@ on:
       - 'forma_core/cli/main.py'
       - 'tests/integrations/test_cad_migrations.py'
       - 'tests/integrations/test_cad_native_evidence.py'
+      - 'tests/integrations/test_cad_worker.py'
       - 'examples/cad-migrations/**'
       - '.github/workflows/ai-cad-migrations.yml'
 permissions:
