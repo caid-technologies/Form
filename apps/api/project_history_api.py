@@ -59,6 +59,8 @@ def _summary(revision: ProjectRevision) -> RevisionSummary:
         summary = "Generated concept image"
     elif revision.parent_revision is None:
         summary = "Created project"
+    elif revision.source_job_id.startswith("cad-workflow-"):
+        summary = "Saved CAD export or migration review"
     elif revision.source_job_id.startswith("opencode-"):
         summary = "Updated design"
     else:

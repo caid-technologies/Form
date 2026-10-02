@@ -21,11 +21,15 @@ type CadModelPanelProps = {
   apiUrl?: string;
   getHeaders?: () => Promise<Record<string, string>>;
   revisionId?: string;
+  artifactPath?: string;
 };
 
-export default function CadModelPanel({ cadModel, apiUrl, getHeaders, revisionId }: CadModelPanelProps) {
-  const descriptor = useMemo(() => resolveCadModel(cadModel), [cadModel]);
+export default function CadModelPanel({ cadModel, apiUrl, getHeaders, revisionId, artifactPath }: CadModelPanelProps) {
+  const safeArtifact = Boolean(artifactPath && /^\/projects\/[0-9a-f-]{36}\/cad-workflows\/artifacts\/[0-9a-f-]{36}\/[0-9a-f]{64}$/.test(artifactPath));
   const artifact = useMemo(() => nativeStepArtifact(cadModel), [cadModel]);
+  const descriptor = useMemo(() => safeArtifact && apiUrl && artifactPath
+    ? { kind: "file" as const, url: `${apiUrl}${artifactPath}`, filename: "preview.step", sourceKind: "path" as const }
+    : resolveCadModel(cadModel), [cadModel, apiUrl, artifactPath, safeArtifact]);
   const headersRef = useRef(getHeaders);
   headersRef.current = getHeaders;
   const [meshes, setMeshes] = useState<MeshPayload[]>([]);
@@ -59,7 +63,7 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders, revisionId
         const { OpenCadApiClient } = await import("opencad-viewport");
         if (cancelled) return;
         const api = new OpenCadApiClient(apiBaseUrl, kernelUrl);
-        const snapshotUrl = artifact && apiUrl && revisionId ? `${apiUrl}${nativeStepDownloadPath(artifact, revisionId)}` : null;
+        const snapshotUrl = safeArtifact && apiUrl ? `${apiUrl}${artifactPath}` : artifact && apiUrl ? `${apiUrl}${nativeStepDownloadPath(artifact, revisionId)}` : null;
         const headers = snapshotUrl ? await headersRef.current?.() : undefined;
         const mesh = descriptor.kind === "shape"
           ? await api.getMesh(descriptor.shapeId)
@@ -79,7 +83,7 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders, revisionId
       cancelled = true;
       controller.abort();
     };
-  }, [descriptor, artifact, apiUrl, revisionId]);
+  }, [descriptor, artifact, apiUrl, revisionId, artifactPath, safeArtifact]);
 
   if (!descriptor) {
     return <CadModelState icon={<Box className="h-7 w-7" />} message="No CAD model attached to this project." />;

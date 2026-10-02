@@ -92,6 +92,15 @@ vendor partnership.
 
 ## Verification and Marketplace submission
 
+### Revision-bound CAD actions
+
+The backend also advertises `forma.cad_capabilities` and `forma.cad_workflows`
+for professional CAD export, migration planning, native-evidence comparison and
+review. They share the project UI's ownership, revision and evidence checks.
+See [CAD project workflows](cad-project-workflows.md) for request examples,
+review authorization and the GrokBot-compatible, provider-neutral boundary.
+
+
 The repository root is the single plugin root. `.cursor-plugin/plugin.json`
 points directly to the canonical `.agents/skills` directory and `mcp.json`;
 there is no generated skill copy or multi-plugin marketplace manifest to maintain.

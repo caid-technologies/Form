@@ -62,3 +62,12 @@ test("unresolved local paths and raw S3 locations never become browser fetches",
   assert.equal(s3Uri?.kind, "unsupported");
   assert.equal(signedS3?.kind, "file");
 });
+
+
+test("accepted native STEP resolves to the project-owned download route", () => {
+  const project = "11111111-1111-4111-8111-111111111111";
+  const hash = "a".repeat(64);
+  const cad = { adapter: "forma-opencad", format: "step", project_id: project, stored_sha256: hash, filename: "rebuilt.step", url: "https://untrusted.example/ignored.step" };
+  assert.deepEqual(resolveCadModel(cad), { kind: "file", url: `/opencode/projects/${project}/cad/${hash}`, filename: "rebuilt.step", sourceKind: "path" });
+  assert.equal(resolveCadModel({ ...cad, project_id: "../other", url: "private.step" })?.kind, "unsupported");
+});
