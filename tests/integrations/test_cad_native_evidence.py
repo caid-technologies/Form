@@ -116,7 +116,7 @@ class InventorBoundaryTests(unittest.TestCase):
         body = NS(IsSolid=True, RangeBox=NS(MinPoint=NS(X=.7, Y=.7, Z=0.), MaxPoint=NS(X=1.3, Y=1.3, Z=.4)))
         self.document = NS(FullFileName=str(path), DocumentType=1, Dirty=False,
             ComponentDefinition=NS(Features=Collection(self.feature), SurfaceBodies=Collection(body), MassProperties=NS(Volume=.1130973355)),
-            PropertySets=NS(Item=lambda guid: NS(ItemByPropId=lambda id: NS(Value=f"property-{id}"))))
+            PropertySets=NS(Item=lambda guid: Collection(NS(Name="Finish code", Value="Anodized")) if guid.startswith("{D5CDD505") else NS(ItemByPropId=lambda id: NS(Value=f"property-{id}"))))
 
     def test_reads_saved_identity_mm_geometry_and_complete_inventory(self):
         model = extract_document(self.document, self.c, "test-only")
@@ -125,6 +125,7 @@ class InventorBoundaryTests(unittest.TestCase):
         self.assertEqual(model.features[0].origin, (10., 10., 0.))
         self.assertEqual(model.parameters, {"F1_radius": 3., "F1_depth": 4.})
         self.assertAlmostEqual(model.source_geometry.volume_mm3, 113.0973355)
+        self.assertEqual(json.loads(next(iter(model.metadata.properties.values()))), {"name": "Finish code", "value": "Anodized"})
         self.assertEqual(plan_migration(model, "fusion360")["status"], "ready_for_rebuild")
 
     def test_unsupported_features_are_retained_not_dropped(self):
@@ -146,6 +147,12 @@ class InventorBoundaryTests(unittest.TestCase):
     def test_unsaved_or_dirty_document_is_rejected(self):
         self.document.Dirty = True
         with self.assertRaises(ValueError): extract_document(self.document, self.c, "test-only")
+
+    def test_credential_like_custom_properties_are_rejected(self):
+        original = self.document.PropertySets.Item
+        self.document.PropertySets.Item = lambda guid: Collection(NS(Name="API Token", Value="not-a-real-credential")) if guid.startswith("{D5CDD505") else original(guid)
+        with self.assertRaisesRegex(ValueError, "Credential-like"):
+            extract_document(self.document, self.c, "test-only")
 
 
 class FusionEvidenceProgramTests(unittest.TestCase):

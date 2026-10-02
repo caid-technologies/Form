@@ -145,6 +145,11 @@ this adapter: sampled dimensions become independent `F<n>_<dimension>` parameter
 This loss is included in the inventory notes and plan. Inventor database
 centimeters and cubic centimeters convert to millimeters and cubic millimeters.
 Metadata uses built-in property-set IDs independent of UI language.
+Custom iProperties retain their original labels and text values as JSON strings
+under stable `custom_<hash>` keys; this avoids silently losing labels with spaces
+or Unicode. Credential-like property names are rejected, and values remain
+subject to the contract's size limits. Mapping these entries into an enterprise
+property dictionary still requires an organization-specific adapter.
 
 Fusion's generated script measures the rebuilt single solid, perturbs each named
 parameter by 1%, recomputes and checks feature health and geometry change, restores

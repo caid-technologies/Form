@@ -7,6 +7,7 @@ equations are not claimed as preserved by this first extraction adapter.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import re
 
@@ -107,6 +108,18 @@ def extract_document(document, constants, application_version: str) -> Migration
     summary = document.PropertySets.Item("{F29F85E0-4FF9-1068-AB91-08002B27B3D9}")
     metadata = {"part_number": str(design.ItemByPropId(5).Value), "description": str(design.ItemByPropId(29).Value),
                 "material": str(design.ItemByPropId(20).Value), "revision": str(summary.ItemByPropId(9).Value)}
+    custom = document.PropertySets.Item("{D5CDD505-2E9C-101B-9397-08002B2CF9AE}")
+    properties = {}
+    for prop in _items(custom):
+        name = str(prop.Name)
+        compact = "".join(c for c in name.lower() if c.isalnum())
+        if any(marker in compact for marker in ("password", "secret", "token", "apikey", "authorization")):
+            raise ValueError("Credential-like custom CAD properties must be removed before extraction")
+        # Keep original labels, including spaces/unicode, within the strict
+        # Identifier -> Text contract; stable keys avoid normalization collisions.
+        key = "custom_" + hashlib.sha256(name.encode()).hexdigest()[:32]
+        properties[key] = json.dumps({"name": name, "value": str(prop.Value)}, ensure_ascii=False)
+    metadata["properties"] = properties
     bodies = _items(component.SurfaceBodies)
     if not bodies or any(not body.IsSolid for body in bodies):
         raise ValueError("Source must contain solid bodies only")
@@ -120,7 +133,7 @@ def extract_document(document, constants, application_version: str) -> Migration
     return MigrationModel.model_validate({"source": {"name": path.name, "sha256": digest, "system": "inventor",
         "version": application_version, "units": "mm"}, "features": features, "parameters": parameters,
         "metadata": metadata, "source_geometry": geometry, "inventory_complete": True,
-        "inventory_notes": "Read saved active Inventor part via COM. Original sketch constraints, parameter names and dependencies are not retained; constant dimensions become independent F<n>_<dimension> parameters. Unsupported features block reconstruction."})
+        "inventory_notes": "Read saved active Inventor part via COM. Original sketch constraints, parameter names and dependencies are not retained; constant dimensions become independent F<n>_<dimension> parameters. Custom property values are text; custom_<hash> entries contain JSON with the original name and value. Unsupported features block reconstruction."})
 
 
 def extract_active() -> MigrationModel:
