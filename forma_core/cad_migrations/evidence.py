@@ -70,7 +70,17 @@ def compare_evidence(model, target: str, evidence: NativeEvidence) -> dict:
                 (*source.minimum_mm, *source.maximum_mm),
                 (*evidence.geometry.minimum_mm, *evidence.geometry.maximum_mm))),
         })
+    differences = []
+    expected_metadata = model.metadata.model_dump(mode="json")
+    for key in sorted(set(expected_metadata) | set(evidence.metadata)):
+        if expected_metadata.get(key) != evidence.metadata.get(key):
+            differences.append({"property": key, "source": expected_metadata.get(key), "target": evidence.metadata.get(key)})
     return {"status": "checks_passed" if all(checks.values()) else "needs_repair", "checks": checks,
+            "source_geometry": source.model_dump(mode="json") if source else None,
+            "target_geometry": evidence.geometry.model_dump(mode="json"),
+            "metadata_differences": differences,
+            "parameter_checks": evidence.parameter_checks,
+            "source_feature_ids": [f.id for f in model.features], "target_feature_ids": evidence.feature_ids,
             "evidence_origin": "user_uploaded_native_report", "geometry_equivalence_verified": False,
             "tolerances": {"bounds_mm": 0.01, "volume_relative": 0.001, "volume_absolute_mm3": 0.01},
             "limitations": ["Reported measurements are not authenticated native execution.",

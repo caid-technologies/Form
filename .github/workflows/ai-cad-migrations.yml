@@ -20,4 +20,4 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -e .
-      - run: python -m unittest tests.integrations.test_cad_migrations tests.integrations.test_cad_native_evidence tests.tooling.test_core_cli -v
+      - run: python -m unittest tests.integrations.test_cad_migrations tests.integrations.test_cad_native_evidence tests.integrations.test_cad_worker tests.tooling.test_core_cli -v

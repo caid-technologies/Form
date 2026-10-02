@@ -68,7 +68,11 @@ def plan_migration(model: MigrationModel, target: str, *, approve_inferred: bool
                           "nx": "parametric block/cylinder and boolean feature",
                           "fusion360": "dimensioned sketch and timeline extrusion"}.get(target, "unsupported")
         mappings.append({"source_id": feature.id, "source_type": feature.source_type, "target": representation,
-                         "status": "blocked" if issues else "mapped", "provenance": feature.provenance.model_dump()})
+                         "status": "blocked" if issues else "mapped", "provenance": feature.provenance.model_dump(),
+                         "source_name": feature.name,
+                         "source_dimensions_mm": {key: model.resolve(getattr(feature, key)) for key in ("width", "height", "radius", "depth") if getattr(feature, key) is not None},
+                         "review_guidance": ("Keep this source feature unchanged until a supported adapter or a separately reviewed source-history replacement is supplied." if issues else
+                                             "Rebuild as " + representation + "; compare named dimensions and native behavior before accepting.")})
         previous = feature.id
     return {
         "format": "forma-cad-migration-plan", "version": 1,

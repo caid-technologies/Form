@@ -229,3 +229,35 @@ Vendor references used to define the boundary:
 - [Fusion native archive export](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/ExportManager_createFusionArchiveExportOptions.htm)
 - [Fusion extrusion extent API](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/ExtrudeFeatureInput_setDistanceExtent.htm)
 - [Siemens community discussion of NX Open builders](https://community.sw.siemens.com/s/question/0D54O000061xQOLSA2/c-programming-using-nxopen)
+
+## Customer-controlled execution worker
+
+Form can queue a rebuild for a customer worker. Install this repository's trusted
+Python package in the CAD runtime, supply an existing Form owner credential in
+`FORMA_CAD_TOKEN`, and set `FORMA_CAD_API_URL` and `FORMA_CAD_PROJECT_ID` in the
+customer environment. Credentials are never stored in a rebuild package.
+
+For Fusion, use a Fusion Python script whose `run(context)` calls
+`forma_core.cad_migrations.worker.run(context)`. It claims one queued Fusion job,
+regenerates the supported program locally, runs on Fusion's script thread, and
+returns STEP/F3D bytes plus parameter/geometry/metadata evidence to Form. Invoke
+the worker again for the next job. Fusion and the Form package must be installed
+in the customer's CAD environment; this is not headless Fusion.
+
+For NX or an authorized Onshape integration, run
+`python -m forma_core.cad_migrations.worker --api HTTPS_API/api --project UUID
+--target nx --runner /absolute/path/to/customer-cad-runner`. The operator-selected
+executable receives a scratch package directory and target. It must execute the
+reviewed program and produce one `evidence-*.json` plus the hashed native/STEP
+outputs named in that report. Those vendor-specific executors must be supplied
+and validated by the customer; the pull protocol is not an implemented Onshape
+OAuth connection or a complete NX measurement adapter. No downloaded Python or
+operator command from the server is executed; the worker uses installed templates.
+
+An explicit queued attempt is claimed once. Cancel/requeue invalidates an older
+attempt; native execution has no automatic retry. Inspect local CAD logs on failure.
+The worker requires HTTPS except on loopback, refuses redirects, checks artifact
+hashes and bounds uploads. Source/import file hashes bind reviewed history to the
+actual preserved bytes. A native output upload remains customer-reported evidence,
+not attestation or a CAD-kernel topology comparison. Licensed pilot testing remains
+required before release.
