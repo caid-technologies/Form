@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { CheckCircle2, ChevronDown, Download, FileBox, FileJson, FileText, Loader2, Printer, RefreshCw, TriangleAlert } from "lucide-react";
 import { webConfig } from "../../lib/config";
 import { useFormaAuth } from "../../lib/forma-auth";
 import { waitForExport, type GcodeExportResult } from "./export-job";
+
+const CadHandoffDialog = dynamic(() => import("./cad-handoff-dialog"));
 
 type ExportPrinter = {
   printer_id: string; display_name: string; nozzle_mm: number; material: string;
@@ -52,6 +55,7 @@ function errorMessage(payload: unknown, fallback: string): string {
 
 type ProjectExportsPanelProps = {
   projectId: string;
+  projectRevisionId?: string;
   canDownloadAssets: boolean;
   onDownloadJSON: () => void;
   onDownloadMarkdown: () => void;
@@ -59,6 +63,7 @@ type ProjectExportsPanelProps = {
 
 export default function ProjectExportsPanel({
   projectId,
+  projectRevisionId,
   canDownloadAssets,
   onDownloadJSON,
   onDownloadMarkdown,
@@ -87,12 +92,13 @@ export default function ProjectExportsPanel({
       ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   }, [getToken]);
 
-  const requestJson = useCallback(async (url: string, signal: AbortSignal, body?: object) => {
+  const requestJson = useCallback(async (url: string, signal: AbortSignal, body?: object, allowMissingStep = false) => {
     const response = await fetch(url, {
       method: body ? "POST" : "GET", headers: await requestHeaders(Boolean(body)),
       body: body ? JSON.stringify(body) : undefined, cache: "no-store", signal,
     });
     const payload: unknown = await response.json().catch(() => null);
+    if (allowMissingStep && response.status === 404 && (payload as { detail?: { code?: string } })?.detail?.code === "step_not_found") return null;
     if (!response.ok) throw new Error(errorMessage(payload, `Export request failed (${response.status}).`));
     return payload;
   }, [requestHeaders]);
@@ -104,9 +110,10 @@ export default function ProjectExportsPanel({
     if (!projectId || !canRead) return () => controller.abort();
     setLoading(true);
     setError(null);
-    void requestJson(`${API_URL}/projects/${encodeURIComponent(projectId)}/exports`, controller.signal)
+    void requestJson(`${API_URL}/projects/${encodeURIComponent(projectId)}/exports`, controller.signal, undefined, true)
       .then((payload) => {
         if (controller.signal.aborted) return;
+        if (payload === null) return;
         const next = payload as Manifest;
         if (next?.project_id !== projectId || !next.step?.sha256 || !Array.isArray(next.printers)) {
           throw new Error("Invalid project exports response.");
@@ -118,7 +125,7 @@ export default function ProjectExportsPanel({
       .catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not load exports."); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [projectId, canRead, refresh, requestJson]);
+  }, [projectId, projectRevisionId, canRead, refresh, requestJson]);
 
   useEffect(() => {
     if (!downloadMenuOpen) return;
@@ -201,7 +208,6 @@ export default function ProjectExportsPanel({
         onClick={() => openSignIn({ redirectUrl: window.location.href })}>Sign in</button>
     </div></div>;
   }
-  if (loading && !currentManifest) return <div className="flex h-full items-center justify-center gap-2 text-xs"><Loader2 className="h-4 w-4 animate-spin" />Loading exports…</div>;
 
   return <div className="h-full overflow-y-auto bg-[var(--forma-page)] p-4 sm:p-6">
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
@@ -266,7 +272,7 @@ export default function ProjectExportsPanel({
             <FileBox className="h-5 w-5" />
             <div>
               <h3 className="text-sm font-semibold">CAD geometry</h3>
-              <p className="mt-1 text-xs text-[var(--forma-text-muted)]">{currentManifest?.step.filename || "assembly.step"} · {formatBytes(currentManifest?.step.size_bytes)}</p>
+              <p className="mt-1 text-xs text-[var(--forma-text-muted)]">{currentManifest ? `${currentManifest.step.filename} · ${formatBytes(currentManifest.step.size_bytes)}` : loading ? "Loading CAD geometry…" : "No saved STEP geometry"}</p>
               {sourceSha && <p className="mt-1 font-mono text-[10px]">sha256:{sourceSha.slice(0, 16)}…</p>}
               <p className="mt-1 text-[10px] text-[var(--forma-text-muted)]">STEP is the source of truth; STL, 3MF, and OBJ are generated from the same model.</p>
             </div>
@@ -327,6 +333,7 @@ export default function ProjectExportsPanel({
             )}
           </div>
         </div>
+        <CadHandoffDialog key={projectId} projectId={projectId} apiUrl={API_URL} enabled={canRead && canDownloadAssets} />
       </section>
       <section className="rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4">
         <div className="flex items-start gap-3"><Printer className="h-5 w-5" /><div>

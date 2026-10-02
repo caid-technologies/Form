@@ -2009,7 +2009,14 @@ def _mcp_tool_result(result: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _mcp_tools() -> List[Dict[str, Any]]:
+    from apps.api.cad_workflows import CadAction
     return [
+        {"name": "forma.cad_capabilities", "description": "Discover export targets, migration routes and typed history/evidence schemas. No provider or CAD application is invoked.",
+         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
+        {"name": "forma.cad_workflows", "description": "Read an owned project's CAD runs or save a revision-bound export, migration plan/package, native evidence or review. Omit command to read. Native CAD runs externally. Obtain explicit user direction before accepting a result; record a concrete review note. No vendor partnership is implied.",
+         "inputSchema": {"type": "object", "properties": {"project_id": {"type": "string", "format": "uuid"},
+             "command": {"$ref": "#/$defs/CadAction"}}, "required": ["project_id"], "additionalProperties": False,
+             "$defs": {**CadAction.model_json_schema().get("$defs", {}), "CadAction": {k: v for k, v in CadAction.model_json_schema().items() if k != "$defs"}}}},
         {
             "name": "forma.compile_project",
             "description": (
@@ -2472,6 +2479,20 @@ async def _call_mcp_tool(
     arguments: Dict[str, Any],
     user_context: Optional[UserContext] = None,
 ) -> Dict[str, Any]:
+    if tool_name in {"forma.cad_capabilities", "forma.cad_workflows"}:
+        from apps.api.cad_workflows import CadAction, capabilities, execute_action, get_workflows
+        from starlette.concurrency import run_in_threadpool
+        if user_context is None or not user_context.owner_user_id:
+            raise HTTPException(status_code=401, detail="Authentication required for CAD tools.")
+        if tool_name == "forma.cad_capabilities":
+            return capabilities()
+        project_id = str(uuid.UUID(str(arguments.get("project_id", ""))))
+        if len(json.dumps(arguments).encode()) > 2 * 1024 * 1024:
+            raise ValueError("CAD tool arguments exceed 2 MiB")
+        if arguments.get("command") is None:
+            return await run_in_threadpool(get_workflows, project_id, user_context)
+        command = CadAction.model_validate(arguments["command"])
+        return await run_in_threadpool(execute_action, project_id, user_context, command)
     if tool_name == "forma.compile_project":
         project = HardwareIntermediateRepresentation.model_validate(arguments.get("project_ir"))
         issues = validate_circuit(project.components, project.nets, project.requirements)

@@ -1495,6 +1495,8 @@ def append_project_revision(
     state: Any,
     *,
     source_job_id: str,
+    expected_parent_revision: int | None = None,
+    artifacts: list | None = None,
 ) -> ProjectRevision:
     """Persist an iteration as the next immutable canonical project revision."""
 
@@ -1562,11 +1564,16 @@ def append_project_revision(
         parent.design_brief_version,
     )
     draft = build_generation_draft(brief, HardwareIntermediateRepresentation.model_validate(state))
+    if artifacts:
+        combined = {item.artifact_id: item for item in draft.artifacts}
+        combined.update({item.artifact_id: item for item in artifacts})
+        draft = draft.model_copy(update={"artifacts": list(combined.values())})
     revision = service.create_revision(
         draft,
         project_id=project_id,
         owner_user_id=owner_user_id,
         source_job_id=source_job_id,
+        expected_parent_revision=expected_parent_revision,
     ).revision
     invalidate_project_lists()
     return revision

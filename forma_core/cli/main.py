@@ -306,6 +306,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     from forma_core.cad_migrations.cli import register_parser as register_cad_migrations
     register_cad_migrations(subparsers)
+    from forma_core.cad_export.cli import register_parser as register_cad_export
+    register_cad_export(subparsers)
 
     return parser
 

@@ -233,5 +233,7 @@ export function resolveCadModel(value: unknown): CadModelDescriptor | null {
 
   const meshes = meshesFromValue(value);
   if (meshes.length) return { kind: "meshes", meshes };
+  const native = nativeStepArtifact(value);
+  if (native) return { kind: "file", url: nativeStepDownloadPath(native), filename: filenameForSource(asRecord(value)!, nativeStepDownloadPath(native)), sourceKind: "path" };
   return sourceDescriptor(value);
 }

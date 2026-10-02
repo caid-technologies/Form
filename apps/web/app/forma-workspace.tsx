@@ -5822,6 +5822,7 @@ export function FormaWorkspace({
         return currentProjectId ? (
           <ProjectExportsPanel
             projectId={currentProjectId}
+            projectRevisionId={projectIR?.assembly_metadata?.canonical_revision_id}
             canDownloadAssets={currentProjectCanDownloadAssets}
             onDownloadJSON={downloadJSONIR}
             onDownloadMarkdown={downloadMarkdownDocs}

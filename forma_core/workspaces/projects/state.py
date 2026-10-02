@@ -429,6 +429,7 @@ class ProjectStateService:
         source_job_id: str,
         design_brief_id: str | UUID | None = None,
         design_brief_version: int | None = None,
+        expected_parent_revision: int | None = None,
     ) -> ProjectRevisionOutcome:
         """Append one immutable revision to an existing canonical project."""
 
@@ -451,6 +452,9 @@ class ProjectStateService:
             )
 
         parent = self.get_latest(project, owner)
+
+        if expected_parent_revision is not None and parent.revision != expected_parent_revision:
+            raise ProjectStateError("project_revision_conflict", "The project changed. Refresh before saving this action.", retryable=True)
 
         brief_id = (
             _canonical_uuid(design_brief_id, "design_brief_id")
@@ -476,6 +480,10 @@ class ProjectStateService:
         revision_uuid = uuid4()
         state = draft.state.model_copy(deep=True)
         metadata = dict(state.assembly_metadata or {})
+        # CAD audit records survive design edits and become stale through their
+        # source fingerprint; historical downloads remain tied to saved revisions.
+        if "cad_workflows" not in metadata and "cad_workflows" in (parent.state.assembly_metadata or {}):
+            metadata["cad_workflows"] = parent.state.assembly_metadata["cad_workflows"]
 
         supplied_project = str(
             metadata.get("project_id") or ""
@@ -502,6 +510,9 @@ class ProjectStateService:
             update={
                 "state": state,
                 "components": list(state.components),
+                "artifacts": list({item.artifact_id: item for item in [
+                    *[item for item in parent.artifacts if item.kind == "cad-workflow"], *draft.artifacts,
+                ]}.values()),
             }
         )
 
