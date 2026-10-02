@@ -47,3 +47,13 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(comparison["metadata_differences"][0]["target"], "different")
         self.assertEqual(comparison["source_geometry"], model.source_geometry.model_dump(mode="json"))
         self.assertEqual(set(comparison["parameter_checks"]), set(model.parameters))
+
+    def test_missing_history_measurements_use_only_the_bound_saved_step(self):
+        model = sample(); report = evidence(model)
+        model.source_geometry = None
+        report.rebuild_sha256 = hashlib.sha256(json.dumps(model.normalized(), sort_keys=True, indent=2, ensure_ascii=False).encode() + b"\n").hexdigest()
+        report.source_geometry = report.geometry
+        report.source_step_sha256 = "a" * 64
+        with self.assertRaises(ValueError): compare_evidence(model, "fusion360", report)
+        with self.assertRaises(ValueError): compare_evidence(model, "fusion360", report, source_step_sha256="b"*64)
+        self.assertEqual(compare_evidence(model, "fusion360", report, source_step_sha256="a"*64)["status"], "checks_passed")

@@ -34,7 +34,18 @@ def receipt(root, model, target, features, error=None):
 
 '''
 
-FUSION = '''def fusion_metrics(component):
+FUSION = '''def fusion_mesh(root, component, name):
+    mesh = component.bRepBodies.item(0).meshManager.createMeshCalculator().calculate()
+    if mesh is None or len(mesh.nodeCoordinates) > 100000:
+        raise RuntimeError("CAD preview tessellation is missing or exceeds 100000 nodes")
+    payload = {"format": "forma-cad-mesh", "units": "mm",
+               "vertices": [value * 10 for point in mesh.nodeCoordinates for value in (point.x, point.y, point.z)],
+               "faces": list(mesh.nodeIndices)}
+    content = json.dumps(payload, allow_nan=False).encode()
+    (root / name).write_bytes(content)
+    return hashlib.sha256(content).hexdigest()
+
+def fusion_metrics(component):
     if component.bRepBodies.count != 1 or not component.bRepBodies.item(0).isSolid:
         raise RuntimeError("Expected one solid body")
     body = component.bRepBodies.item(0)
@@ -69,7 +80,19 @@ def fusion_evidence(root, model, design, component, app):
             zip(restored["minimum_mm"]+restored["maximum_mm"], baseline["minimum_mm"]+baseline["maximum_mm"])):
         raise RuntimeError("Geometry changed after parameter restoration")
     run_id = uuid4().hex
-    artifacts = {}
+    artifacts = {"target.mesh.json": fusion_mesh(root, component, "target.mesh.json")}
+    source_metrics, source_digest = None, None
+    if (root / "source.step").is_file():
+        source_digest = hashlib.sha256((root / "source.step").read_bytes()).hexdigest()
+        source_doc = app.importManager.importToNewDocument(app.importManager.createSTEPImportOptions(str(root / "source.step")))
+        if source_doc is None:
+            raise RuntimeError("Could not import source STEP for comparison")
+        try:
+            source_component = adsk.fusion.Design.cast(source_doc.products.itemByProductType("DesignProductType")).rootComponent
+            source_metrics = fusion_metrics(source_component)
+            artifacts["source.mesh.json"] = fusion_mesh(root, source_component, "source.mesh.json")
+        finally:
+            source_doc.close(False)
     manager = design.exportManager
     for extension, options in (
             ("step", manager.createSTEPExportOptions(str(root / ("rebuilt-" + run_id + ".step")), component)),
@@ -86,7 +109,7 @@ def fusion_evidence(root, model, design, component, app):
               "status": "rebuilt_unverified", "geometry": baseline, "parameter_checks": checks,
               "feature_ids": [component.features.item(i).attributes.itemByName("Forma", "source_feature_id").value
                               for i in range(component.features.count)],
-              "metadata": metadata, "native_artifacts": artifacts, "error": None}
+              "metadata": metadata, "native_artifacts": artifacts, "source_geometry": source_metrics, "source_step_sha256": source_digest, "error": None}
     with (root / ("evidence-" + run_id + ".json")).open("x", encoding="utf-8") as output:
         json.dump(result, output, indent=2, allow_nan=False)
 

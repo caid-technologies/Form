@@ -162,6 +162,7 @@ class FusionEvidenceProgramTests(unittest.TestCase):
         parameters = {name: NS(expression=f"{value} mm") for name, value in model["parameters"].items()}
         baseline = {name: item.expression for name, item in parameters.items()}
         class Body:
+            meshManager = NS(createMeshCalculator=lambda: NS(calculate=lambda: NS(nodeCoordinates=[NS(x=0., y=0., z=0.), NS(x=4., y=0., z=0.), NS(x=0., y=2., z=0.)], nodeIndices=[0, 1, 2])))
             isSolid = True
             boundingBox = NS(minPoint=NS(x=0., y=0., z=0.), maxPoint=NS(x=4., y=2., z=.4))
             @property
@@ -191,7 +192,8 @@ class FusionEvidenceProgramTests(unittest.TestCase):
         report = NativeEvidence.model_validate_json(next(root.glob("evidence-*.json")).read_bytes())
         self.assertEqual(report.feature_ids, [f["id"] for f in model["features"]])
         self.assertEqual(set(report.parameter_checks.values()), {changes_shape})
-        self.assertEqual(len(report.native_artifacts), 2)
+        self.assertEqual(len(report.native_artifacts), 3)
+        self.assertIn("target.mesh.json", report.native_artifacts)
         for name, digest in report.native_artifacts.items():
             self.assertEqual(hashlib.sha256((root/name).read_bytes()).hexdigest(), digest)
 

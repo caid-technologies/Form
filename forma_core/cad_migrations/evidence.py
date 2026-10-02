@@ -37,10 +37,12 @@ class NativeEvidence(BaseModel):
     parameter_checks: dict[str, bool] = Field(max_length=200)
     metadata: dict = Field(max_length=10)
     native_artifacts: dict[str, Digest] = Field(default_factory=dict, max_length=4)
+    source_geometry: GeometryMetrics | None = None
+    source_step_sha256: Digest | None = None
     error: str | None = Field(default=None, max_length=4096)
 
 
-def compare_evidence(model, target: str, evidence: NativeEvidence) -> dict:
+def compare_evidence(model, target: str, evidence: NativeEvidence, *, source_step_sha256: str | None = None) -> dict:
     """Bind measurements to a package and compare in a common unit system.
 
     Tolerances are fixed here, not supplied in a potentially untrusted receipt.
@@ -60,6 +62,10 @@ def compare_evidence(model, target: str, evidence: NativeEvidence) -> dict:
         "metadata": evidence.metadata == model.metadata.model_dump(mode="json"),
     }
     source = model.source_geometry
+    if source is None and evidence.source_geometry is not None:
+        if not source_step_sha256 or evidence.source_step_sha256 != source_step_sha256:
+            raise ValueError("Source measurements must be bound to the saved source STEP artifact")
+        source = evidence.source_geometry
     if source is None:
         checks["source_measurements_available"] = False
     else:

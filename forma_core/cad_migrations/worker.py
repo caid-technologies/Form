@@ -109,6 +109,12 @@ def run_once(client: WorkerClient, target: str, execute) -> dict:
                     if Path(name).name != name:
                         raise ValueError("Invalid generated package path")
                     (root / name).write_bytes(archive.read(name))
+            if run.get("artifacts", {}).get("source_step"):
+                step = run["artifacts"]["source_step"]
+                source_bytes = client.request(client.path + "/artifacts/" + claimed["revision_id"] + "/" + step["sha256"], binary=True)
+                if hashlib.sha256(source_bytes).hexdigest() != step["sha256"]:
+                    raise ValueError("Source STEP checksum failed")
+                (root / "source.step").write_bytes(source_bytes)
             execute(root, target)
             bundle = result_bundle(root)
         return json.loads(client.request(client.path + "/runs/" + run["id"] + "/result?attempt=" + run["execution"]["attempt_id"], bundle, binary=True))
