@@ -21,13 +21,13 @@ def box(length: float, width: float, height: float, center: tuple[float, float, 
 
 # Static wearable frame.
 top = box(174.0, 14.0, 12.0, (0.0, 14.0, 76.0), "Top brow frame")
-left_temple = box(14.0, 76.0, 18.0, (-87.0, 35.0, 42.0), "Left temple rail")
-right_temple = box(14.0, 76.0, 18.0, (87.0, 35.0, 42.0), "Right temple rail")
+left_temple = box(14.0, 76.0, 50.0, (-87.0, 35.0, 55.0), "Left temple rail")
+right_temple = box(14.0, 76.0, 18.0, (87.0, 35.0, 55.0), "Right temple rail")
 left_hinge_block = box(18.0, 24.0, 34.0, (-80.0, 4.0, 32.0), "Left hinge block")
 right_hinge_block = box(18.0, 24.0, 34.0, (80.0, 4.0, 32.0), "Right hinge block")
 controller = box(54.0, 24.0, 12.0, (0.0, 30.0, 78.0), "Controller enclosure")
-left_servo = box(24.0, 28.0, 34.0, (-66.0, 14.0, 46.0), "Left servo envelope")
-right_servo = box(24.0, 28.0, 34.0, (66.0, 14.0, 46.0), "Right servo envelope")
+left_servo = box(24.0, 28.0, 34.0, (-75.0, 14.0, 46.0), "Left servo envelope")
+right_servo = box(24.0, 28.0, 34.0, (75.0, 14.0, 46.0), "Right servo envelope")
 
 frame = top.union(left_temple, name="Frame plus left temple")
 frame = frame.union(right_temple, name="Frame plus right temple")
