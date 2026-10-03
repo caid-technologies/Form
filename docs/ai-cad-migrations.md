@@ -1,7 +1,7 @@
 # AI-assisted CAD migrations
 
 Forma now provides a schema, deterministic migration planner, and native rebuild
-package generator through `forma-core cad-migrate`. The four routes are:
+package generator through `forma-core cad-migrate`. The four external CAD routes are:
 
 | Source → target | Reconstructed representation |
 | --- | --- |
@@ -10,9 +10,14 @@ package generator through `forma-core cad-migrate`. The four routes are:
 | Creo → Siemens NX | The same NX target adapter, from Creo-derived source intent |
 | Autodesk Inventor → Fusion 360 | Fusion Python script creating named parameters, dimensioned sketches and timeline extrusions |
 
+Saved Form `mechanical.cad_operations` can also be mapped to Fusion, Onshape or NX.
+This preserves declared box/cylinder operations with independent named dimensions;
+it does not infer history from a STEP file. Axis engravings remain unsupported.
+
 This is a bounded reconstruction workflow, not a general-purpose proprietary CAD
-file converter. Native source-file parsers, automatic feature recognition from
-STEP, and licensed vendor execution are **not** bundled. Supply source history
+file converter. A read-only Inventor COM extractor is included for a narrow part
+subset. Automatic feature recognition from STEP and licensed vendor runtimes
+are **not** bundled. Supply source history
 from a native CAD extraction or a reviewed reconstruction. A STEP export alone
 cannot recover the original design intent, constraints or feature history.
 
@@ -43,7 +48,8 @@ For a real source model, an extraction process must supply:
 
 1. The source product/version, document name, SHA-256 of the native source file,
    and original length units (`mm`, `cm`, `m` or `in`). Source hashes are preserved
-   but not independently verified because this CLI does not open native files.
+   but not independently verified by planning. The Inventor extractor hashes the
+   saved active file before and after extraction and refuses dirty documents.
 2. A complete ordered feature inventory, including unsupported/suppressed items.
    Keep stable source IDs, source feature types and dependencies. Declare
    `inventory_complete` only after checking the source tree.
@@ -115,8 +121,70 @@ in the Part Studio and does not generate a local execution receipt.
 Before accepting a migrated model, record the source and target versions, source
 hash and plan hash, body count, units/orientation, bounding box, volume and
 engineering-agreed comparison tolerances. Test parameter edits and regeneration,
-inspect metadata, then save to a new native file. No automated mass-property or
-topology comparison is included yet. Retain rejected feature IDs in the report.
+inspect metadata, then save to a new native file. The evidence workflow below
+compares reported measurements; it does not prove surface/topology equivalence.
+Retain rejected feature IDs in the report.
+
+## Inventor extraction and Fusion evidence pilot
+
+On Windows with Inventor running, install `pywin32` in the Python environment
+used by `forma-core`. Open and save an `.ipt` part, then run:
+
+```sh
+forma-core cad-migrate extract-inventor --output source-history.json
+forma-core cad-migrate plan source-history.json --target fusion360 --output plan.json
+forma-core cad-migrate build source-history.json --target fusion360 --output rebuild.zip
+```
+
+The extractor reads every `PartFeatures` item in browser order. It maps constant,
+single-profile rectangle/circle extrusions on global +Z with a distance extent
+and zero taper. Multi-region profiles, equations, linked dimensions, arbitrary
+planes, suppression and other feature types remain blockers. Source Inventor
+parameter names and sketch constraint relationships are **not preserved** by
+this adapter: sampled dimensions become independent `F<n>_<dimension>` parameters.
+This loss is included in the inventory notes and plan. Inventor database
+centimeters and cubic centimeters convert to millimeters and cubic millimeters.
+Metadata uses built-in property-set IDs independent of UI language.
+Custom iProperties retain their original labels and text values as JSON strings
+under stable `custom_<hash>` keys; this avoids silently losing labels with spaces
+or Unicode. Credential-like property names are rejected, and values remain
+subject to the contract's size limits. Mapping these entries into an enterprise
+property dictionary still requires an organization-specific adapter.
+
+Fusion's generated script measures the rebuilt single solid, perturbs each named
+parameter by 1%, recomputes and checks feature health and geometry change, restores
+the original values, and checks the restored measurements. Unused or geometry-neutral
+parameters fail the edit check and require repair/review; they are not silently
+counted as editable. It exports new UUID-named STEP and F3D files and writes
+`evidence-*.json` beside the script. No existing native file is overwritten.
+
+```sh
+forma-core cad-migrate verify source-history.json --target fusion360 \
+  evidence-EXECUTION_ID.json --output comparison.json
+```
+
+`verify` binds target, source SHA and normalized-history SHA, then checks the feature
+inventory, every named parameter result, metadata, one solid body, volume and
+absolute bounds. Fixed tolerances are 0.01 mm on bounds and the larger of 0.01 mm³
+or 0.1% on volume. A missing source baseline cannot pass offline verification. In a Form worker
+run, Fusion can independently measure the saved source STEP; the project service
+accepts that baseline only when its hash matches the saved source artifact. Exit 0 means reported
+checks passed; exit 2 means repair is needed. Reports are user-supplied evidence,
+not attested execution, and `geometry_equivalence_verified` remains false.
+NX and Onshape can use the same evidence schema with a customer-native measurement
+runner; automatic report collection for those applications is not implemented.
+
+Pilot fixture: create a 40 × 20 × 4 mm Inventor rectangular extrusion at the
+origin, then cut a 3 mm radius circle centered at (10, 10) through the same 4 mm.
+Expected analytic volume is `3200 - 36*pi` mm³, one body, bounds (0,0,0)–(40,20,4).
+Extract the real source; do not substitute the synthetic example's zero hash.
+Also test a tapered extrusion, fillet, suppressed feature, linked dimension and
+disjoint cut as blocked cases. Record source/target versions, hashes, native
+files, report, feature gaps and reviewer decision. Validate surfaces independently
+in the CAD kernel before an enterprise pilot claims engineering equivalence.
+
+The generated scripts and extractor have offline contract tests. Licensed
+Inventor/Fusion execution remains a release gate and has not been performed here.
 
 ## GrokBot / Cursor and enterprise pilots
 
@@ -146,9 +214,10 @@ Run `python -m unittest tests.integrations.test_cad_migrations -v` or the comple
 unit conversion, dependency errors, package integrity, code-injection boundaries,
 CLI failure behavior and Python syntax. They do not substitute for CAD kernel runs.
 
-Production rollout still requires native source extractors for supported vendor
-versions, richer sketch/constraint mappings, an automated source/target geometry
-comparison, and licensed integration tests. Use this development PR for bounded
+Production rollout still requires source extractors for SOLIDWORKS/Creo, vendor
+version validation for Inventor, richer sketch/constraint mappings, authenticated
+native runners, a CAD-kernel shape comparison, and licensed integration tests.
+Use this development PR for bounded
 adapter evaluation; do not promise arbitrary legacy-model migration fidelity.
 
 Vendor references used to define the boundary:
@@ -156,5 +225,59 @@ Vendor references used to define the boundary:
 - [Onshape importing files and feature-tree limits](https://cad.onshape.com/help/Content/Document/importing_files.htm)
 - [Onshape FeatureScript standard library](https://cad.onshape.com/FsDoc/library.html)
 - [Fusion sketch dimensions API](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/SketchDimensions_addDistanceDimension.htm)
+- [Inventor ordered feature inventory](https://help.autodesk.com/cloudhelp/2024/ENU/Inventor-API/files/PartFeatures.htm)
+- [Inventor extrusion definition](https://help.autodesk.com/cloudhelp/2024/ENU/Inventor-API/files/ExtrudeDefinition.htm)
+- [Inventor sketch-to-model coordinates](https://help.autodesk.com/cloudhelp/2024/ENU/Inventor-API/files/PlanarSketch_SketchToModelSpace.htm)
+- [Fusion native archive export](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/ExportManager_createFusionArchiveExportOptions.htm)
 - [Fusion extrusion extent API](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/ExtrudeFeatureInput_setDistanceExtent.htm)
 - [Siemens community discussion of NX Open builders](https://community.sw.siemens.com/s/question/0D54O000061xQOLSA2/c-programming-using-nxopen)
+
+## Customer-controlled execution worker
+
+With the project integration in PR #570, Form can queue a rebuild for a customer worker. Install this repository's trusted
+Python package in the CAD runtime, supply an existing Form owner credential in
+`FORMA_CAD_TOKEN`, and set `FORMA_CAD_API_URL` and `FORMA_CAD_PROJECT_ID` in the
+customer environment. Credentials are never stored in a rebuild package.
+
+For Fusion, use a Fusion Python script whose `run(context)` calls
+`forma_core.cad_migrations.worker.run(context)`. It claims one queued Fusion job,
+regenerates the supported program locally, runs on Fusion's script thread, and
+returns STEP/F3D bytes plus parameter/geometry/metadata evidence to Form. It
+also returns a millimeter tessellation of the rebuilt body and, when a saved
+source STEP is attached, imports it into a temporary document to measure and
+tessellate the source before closing that document without saving. The original
+bytes remain untouched. Invoke
+the worker again for the next job. Fusion and the Form package must be installed
+in the customer's CAD environment; this is not headless Fusion.
+
+For NX or an authorized Onshape integration, run
+`python -m forma_core.cad_migrations.worker --api HTTPS_API/api --project UUID
+--target nx --runner /absolute/path/to/customer-cad-runner`. The operator-selected
+executable receives a scratch package directory and target. It must execute the
+reviewed program and produce one `evidence-*.json` plus the hashed native/STEP
+outputs named in that report. Those vendor-specific executors must be supplied
+and validated by the customer; the pull protocol is not an implemented Onshape
+OAuth connection or a complete NX measurement adapter. No downloaded Python or
+operator command from the server is executed; the worker uses installed templates.
+
+An explicit queued attempt is claimed once. Cancel/requeue invalidates an older
+attempt; native execution has no automatic retry. Inspect local CAD logs on failure.
+The worker requires HTTPS except on loopback, refuses redirects, checks artifact
+hashes and bounds uploads. Source/import file hashes bind reviewed history to the
+actual preserved bytes. A native output upload remains customer-reported evidence,
+not attestation or a CAD-kernel topology comparison. Licensed pilot testing remains
+required before release.
+
+
+Native previews use `forma-cad-mesh` JSON with `units: "mm"`, flat XYZ `vertices`
+and triangle-index `faces`. Optional `source.mesh.json` and `target.mesh.json`
+must be named and hashed in `native_artifacts`, alongside native/STEP outputs
+(maximum four files). Each body is bounded to 100,000 tessellation nodes; the
+project service validates finite coordinates, triangle indices and upload limits.
+These display meshes do not certify topology equivalence.
+
+Fusion API references for source measurement and tessellation:
+- [Import into a new document](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/core_ImportManager_importToNewDocument.htm)
+- [Create a mesh calculator](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_MeshManager_createMeshCalculator.htm)
+- [Triangle mesh coordinates](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_TriangleMesh_nodeCoordinates.htm)
+- [Triangle indices](https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_TriangleMesh_nodeIndices.htm)

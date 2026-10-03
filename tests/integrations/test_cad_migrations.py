@@ -162,7 +162,7 @@ class MigrationTests(unittest.TestCase):
     def test_cli_schema_and_routes_are_discoverable(self):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(["cad-migrate", "routes"]), 0)
-        self.assertEqual(len(json.loads(output.getvalue())), 4)
+        self.assertEqual(len(json.loads(output.getvalue())), len(ROUTES))
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(["cad-migrate", "schema"]), 0)
         self.assertEqual(json.loads(output.getvalue())["additionalProperties"], False)

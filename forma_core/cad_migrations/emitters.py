@@ -34,7 +34,86 @@ def receipt(root, model, target, features, error=None):
 
 '''
 
-FUSION = '''def run(context):
+FUSION = '''def fusion_mesh(root, component, name):
+    mesh = component.bRepBodies.item(0).meshManager.createMeshCalculator().calculate()
+    if mesh is None or len(mesh.nodeCoordinates) > 100000:
+        raise RuntimeError("CAD preview tessellation is missing or exceeds 100000 nodes")
+    payload = {"format": "forma-cad-mesh", "units": "mm",
+               "vertices": [value * 10 for point in mesh.nodeCoordinates for value in (point.x, point.y, point.z)],
+               "faces": list(mesh.nodeIndices)}
+    content = json.dumps(payload, allow_nan=False).encode()
+    (root / name).write_bytes(content)
+    return hashlib.sha256(content).hexdigest()
+
+def fusion_metrics(component):
+    if component.bRepBodies.count != 1 or not component.bRepBodies.item(0).isSolid:
+        raise RuntimeError("Expected one solid body")
+    body = component.bRepBodies.item(0)
+    box = body.boundingBox
+    return {"body_count": 1, "volume_mm3": body.volume * 1000,
+            "minimum_mm": [box.minPoint.x * 10, box.minPoint.y * 10, box.minPoint.z * 10],
+            "maximum_mm": [box.maxPoint.x * 10, box.maxPoint.y * 10, box.maxPoint.z * 10]}
+
+def fusion_evidence(root, model, design, component, app):
+    import adsk.fusion
+    baseline = fusion_metrics(component)
+    checks = {}
+    for name in model["parameters"]:
+        parameter = design.userParameters.itemByName("forma_" + name)
+        original = parameter.expression
+        try:
+            parameter.expression = str(model["parameters"][name] * 1.01) + " mm"
+            healthy = design.computeAll()
+            healthy = healthy and all(component.features.item(i).healthState == adsk.fusion.FeatureHealthStates.HealthyFeatureHealthState
+                                      for i in range(component.features.count))
+            changed = fusion_metrics(component)
+            checks[name] = bool(healthy and (abs(changed["volume_mm3"] - baseline["volume_mm3"]) > 1e-7
+                or any(abs(a-b) > 1e-7 for a,b in zip(changed["minimum_mm"]+changed["maximum_mm"], baseline["minimum_mm"]+baseline["maximum_mm"]))))
+        except Exception:
+            checks[name] = False
+        finally:
+            parameter.expression = original
+            if not design.computeAll():
+                raise RuntimeError("Failed to restore parameter " + name)
+    restored = fusion_metrics(component)
+    if abs(restored["volume_mm3"] - baseline["volume_mm3"]) > 1e-5 or any(abs(a-b) > 1e-6 for a,b in
+            zip(restored["minimum_mm"]+restored["maximum_mm"], baseline["minimum_mm"]+baseline["maximum_mm"])):
+        raise RuntimeError("Geometry changed after parameter restoration")
+    run_id = uuid4().hex
+    artifacts = {"target.mesh.json": fusion_mesh(root, component, "target.mesh.json")}
+    source_metrics, source_digest = None, None
+    if (root / "source.step").is_file():
+        source_digest = hashlib.sha256((root / "source.step").read_bytes()).hexdigest()
+        source_doc = app.importManager.importToNewDocument(app.importManager.createSTEPImportOptions(str(root / "source.step")))
+        if source_doc is None:
+            raise RuntimeError("Could not import source STEP for comparison")
+        try:
+            source_component = adsk.fusion.Design.cast(source_doc.products.itemByProductType("DesignProductType")).rootComponent
+            source_metrics = fusion_metrics(source_component)
+            artifacts["source.mesh.json"] = fusion_mesh(root, source_component, "source.mesh.json")
+        finally:
+            source_doc.close(False)
+    manager = design.exportManager
+    for extension, options in (
+            ("step", manager.createSTEPExportOptions(str(root / ("rebuilt-" + run_id + ".step")), component)),
+            ("f3d", manager.createFusionArchiveExportOptions(str(root / ("rebuilt-" + run_id + ".f3d")), component))):
+        if not manager.execute(options):
+            raise RuntimeError("Native export failed: " + extension)
+        path = root / ("rebuilt-" + run_id + "." + extension)
+        with path.open("rb") as stream:
+            artifacts[path.name] = hashlib.file_digest(stream, "sha256").hexdigest()
+    metadata = json.loads(component.attributes.itemByName("Forma", "migration").value)["metadata"]
+    metadata["part_number"], metadata["description"] = component.partNumber, component.description
+    result = {"format": "forma-native-evidence", "version": 1, "target": "fusion360", "application_version": app.version,
+              "source_sha256": model["source"]["sha256"], "rebuild_sha256": EXPECTED_HISTORY_SHA256,
+              "status": "rebuilt_unverified", "geometry": baseline, "parameter_checks": checks,
+              "feature_ids": [component.features.item(i).attributes.itemByName("Forma", "source_feature_id").value
+                              for i in range(component.features.count)],
+              "metadata": metadata, "native_artifacts": artifacts, "source_geometry": source_metrics, "source_step_sha256": source_digest, "error": None}
+    with (root / ("evidence-" + run_id + ".json")).open("x", encoding="utf-8") as output:
+        json.dump(result, output, indent=2, allow_nan=False)
+
+def run(context):
     import adsk.core
     import adsk.fusion
     root, model = load_history()
@@ -100,9 +179,10 @@ FUSION = '''def run(context):
             feature.attributes.add("Forma", "source_feature_id", item["id"])
             features.append({"source_id": item["id"], "target_name": feature.name, "timeline_index": feature.timelineObject.index})
         component.attributes.add("Forma", "migration", json.dumps({"source": model["source"], "metadata": model["metadata"]}, ensure_ascii=False))
+        fusion_evidence(root, model, design, component, app)
         receipt(root, model, "fusion360", features)
         app.userInterface.messageBox("Forma rebuilt the supported feature history in a new unsaved design. "
-                                    "Compare geometry, edit parameters, inspect metadata, then save. Material is reference text only.")
+                                    "Native STEP, F3D and evidence files are beside this script. Review the evidence in Form. Material is reference text only.")
     except Exception as exc:
         receipt(root, model, "fusion360", features, str(exc))
         document.close(False)
