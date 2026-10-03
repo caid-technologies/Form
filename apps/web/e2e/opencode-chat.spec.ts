@@ -6,6 +6,10 @@ const projectId = "746df932-f4ed-49a4-a36e-5a50a22aa918";
 const sessionId = "session-opencode-chat";
 const commandIds = ["command-first-turn", "command-second-turn"];
 const answers = ["Hello from OpenCode.", "Still here in the same OpenCode session."];
+const legacyWelcome = {
+  id: "assistant-welcome", role: "assistant", status: "idle", timestamp: "2026-10-03T15:06:00Z",
+  content: "Tell me what you want to build. I can turn it into a project with parts, wiring, mechanical notes, validation, jobs, and optional product images.",
+};
 const publishedProject = {
   project_id: projectId,
   chat_id: "839aeb42-31d5-4b74-91f8-a93bc3a17db6",
@@ -190,6 +194,8 @@ for (const scenario of ["concurrent chats", "stop during session creation"] as c
       await expect.poll(() => sessions.length).toBe(1);
       await expect(stop).toBeVisible();
       await expect(page).toHaveURL(/\/chat\/[^/?#]+$/);
+      // Includes a session response held open: no agent reply has arrived yet.
+      await expect(page.getByText(legacyWelcome.content, { exact: true })).toHaveCount(0);
 
       if (scenario === "stop during session creation") {
         await stop.click();
@@ -282,7 +288,7 @@ test("recover old OpenCode history on a clean browser without saving a fallback 
     if (path === `/chats/${publishedProject.chat_id}`) return route.fulfill({ status: 404, json: { detail: "Chat not found" } });
     if (path === `/opencode/projects/${projectId}/history`) {
       recoveries += 1;
-      return route.fulfill({ json: { project_id: projectId, messages: history } });
+      return route.fulfill({ json: { project_id: projectId, messages: [...history, legacyWelcome] } });
     }
     if (["/chats", "/a2a/jobs", "/example-project-object-jobs"].includes(path)) return route.fulfill({ json: [] });
     if (path === "/admin/session") return route.fulfill({ json: { is_admin: false } });
@@ -294,12 +300,14 @@ test("recover old OpenCode history on a clean browser without saving a fallback 
   });
   await page.goto(`/chat/${publishedProject.chat_id}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
   for (const message of history) await expect(page.getByRole("main").getByText(message.content, { exact: true })).toBeVisible();
+  await expect(page.getByText(legacyWelcome.content, { exact: true })).toHaveCount(0);
   await expect(page.getByRole("main").getByText("OpenCode project", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("main").getByText(/ is the active project for this chat\.$/)).toHaveCount(0);
   expect(recoveries).toBeGreaterThan(0);
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: "domcontentloaded" });
   for (const message of history) await expect(page.getByRole("main").getByText(message.content, { exact: true })).toBeVisible();
+  await expect(page.getByText(legacyWelcome.content, { exact: true })).toHaveCount(0);
   expect(mutations).toEqual([]);
   expect(unexpected).toEqual([]);
 });
@@ -877,6 +885,7 @@ for (const outcome of ["retry", "cancel", "reconnect"] as const) {
     await composer.press("Enter");
     await expect(page.getByText(/Waiting for Forma Agent to reconnect/)).toBeVisible();
     await expect(stop).toBeVisible();
+    await expect(page.getByText(legacyWelcome.content, { exact: true })).toHaveCount(0);
     if (outcome === "cancel") {
       await stop.click();
       await expect.poll(() => cancellations).toEqual(["outage-1"]);
@@ -887,6 +896,7 @@ for (const outcome of ["retry", "cancel", "reconnect"] as const) {
       if (outcome === "retry") {
         await expect(page.getByText(/Code: connector_timeout/)).toBeVisible();
         await expect(stop).toHaveCount(0);
+        await expect(page.getByText(legacyWelcome.content, { exact: true })).toHaveCount(0);
         const retry = page.getByRole("button", { name: "Try failed build again", exact: true });
         await expect(retry).toBeVisible();
         await page.screenshot({ path: "test-results/opencode-timeout-retry.png", fullPage: true });
@@ -1019,6 +1029,64 @@ for (const mode of ["http", "malformed", "hung", "transient", "cancel", "reload"
     expect(sessions).toHaveLength(1);
     expect(commands).toHaveLength(1); // Reconnection never repeats the POST.
     expect(unexpected).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+}
+
+for (const source of ["server", "local cache"] as const) {
+  test(`legacy welcome stays out of restored chat: ${source}`, async ({ page, baseURL }) => {
+    const appOrigin = new URL(baseURL!).origin;
+    const chatId = "welcome-history";
+    const messages = [
+      { id: "real-user", role: "user", content: "hi", status: "idle", timestamp: legacyWelcome.timestamp },
+      { id: "real-assistant", role: "assistant", content: "Your saved reply.", status: "success", timestamp: legacyWelcome.timestamp },
+      legacyWelcome,
+    ];
+    const chat = { chat_id: chatId, title: "Welcome history", messages, created_at: legacyWelcome.timestamp };
+    const unexpected: string[] = [];
+    const errors: string[] = [];
+    const savedMessages: Array<Array<{ id: string }>> = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    if (source === "local cache") {
+      await page.addInitScript(({ chatId, messages }) => {
+        localStorage.setItem(`forma.chat.${chatId}`, JSON.stringify(messages));
+        localStorage.setItem("forma.chatIndex", JSON.stringify([{
+          chatId, title: "Welcome history", projectId: "", projectCount: 0, createdAt: messages[0].timestamp,
+        }]));
+      }, { chatId, messages });
+    }
+    await page.route("**/*", async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (url.origin === appOrigin && !/^\/api(?:\/|$)/.test(url.pathname)) return route.continue();
+      const path = url.pathname.replace(/^\/api(?=\/|$)/, "") || "/";
+      if (path === "/runtime/config") return route.fulfill({ json: runtimeConfig });
+      if (path === "/chats") return route.fulfill({ json: source === "server" ? [chat] : [] });
+      if (path === `/chats/${chatId}`) {
+        if (request.method() === "PUT") {
+          savedMessages.push(request.postDataJSON().messages);
+          return route.fulfill({ json: { ...chat, ...request.postDataJSON() } });
+        }
+        return route.fulfill({ status: source === "server" ? 200 : 404, json: source === "server" ? chat : { detail: "Not found" } });
+      }
+      if (["/projects", "/my/projects"].includes(path)) return route.fulfill({ json: { items: [], total: 0, has_more: false } });
+      if (["/a2a/jobs", "/example-project-object-jobs"].includes(path)) return route.fulfill({ json: [] });
+      if (path === "/admin/session") return route.fulfill({ json: { is_admin: false } });
+      if (path === "/pipeline/steps") return route.fulfill({ json: { steps: [] } });
+      if (path === "/video/models") return route.fulfill({ json: { models: [], generation_configured: false } });
+      if (path === "/" || request.method() === "OPTIONS") return route.fulfill({ json: { status: "ok" } });
+      unexpected.push(`${request.method()} ${path}`);
+      return route.fulfill({ status: 501, json: { detail: "Unmocked endpoint" } });
+    });
+    for (const reload of [false, true]) {
+      if (reload) await page.reload({ waitUntil: "domcontentloaded" });
+      else await page.goto(`/chat/${chatId}`, { waitUntil: "domcontentloaded" });
+      await expect(page.getByText("Your saved reply.", { exact: true })).toBeVisible();
+      await expect(page.getByRole("main").getByText("hi", { exact: true })).toBeVisible();
+      await expect(page.getByText(legacyWelcome.content, { exact: true })).toHaveCount(0);
+    }
+    expect(savedMessages.flat().some((message) => message.id === legacyWelcome.id)).toBe(false);
+    expect(unexpected).toEqual([]); // Opening history cannot trigger generation.
     expect(errors).toEqual([]);
   });
 }
