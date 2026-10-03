@@ -64,7 +64,7 @@ jobs:
         continue-on-error: true
         run: npx --no-install eslint app/forma-workspace/chat-project-layout.tsx app/forma-workspace/conversation-message-list.tsx app/forma-workspace/home-chat-view.tsx app/forma-workspace/chat-attachments.tsx app/forma-workspace/cad-model-panel.tsx app/forma-workspace/project-history.tsx app/forma-workspace/project-revision-preview.tsx lib/chat-project-layout.ts lib/project-history.ts
       - name: Run layout and main-entry-point regression tests
-        run: node --experimental-strip-types --test test/chat-project-layout.test.ts test/chat-project-integration.test.ts test/project-chat-history.test.ts test/project-history.test.ts
+        run: node --experimental-strip-types --test test/chat-project-layout.test.ts test/chat-project-integration.test.ts test/project-chat-history.test.ts test/project-history.test.ts test/opencode-turn.test.ts test/opencode-polling.test.ts
       - name: Run OpenCAD motion preview regression tests
         run: node --experimental-strip-types --test test/opencad-motion-preview.test.ts test/articulated-motion.test.ts
       - name: Verify locked browser fixture tooling

@@ -42,9 +42,10 @@ def main() -> None:
         for role in ["anon", "authenticated", "service_role"]:
             if not admin.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone():
                 admin.execute(sql.SQL("CREATE ROLE {}").format(sql.Identifier(role)))
-        for name in ["20260908000200_opencode_bridge.sql", "20260930152646_opencode_stale_sessions.sql", "20260930163207_opencode_serial_claims.sql"]:
+        for name in ["20260908000200_opencode_bridge.sql", "20260930152646_opencode_stale_sessions.sql", "20260930163207_opencode_serial_claims.sql", "20261003142232_opencode_stalled_commands.sql"]:
             admin.execute((ROOT / "supabase/migrations" / name).read_text())
         admin.execute("GRANT SELECT, UPDATE ON public.opencode_sessions, public.opencode_commands TO service_role")
+        admin.execute("GRANT SELECT, INSERT ON public.opencode_events TO service_role")
         for session in ["lock-a", "lock-b", "race", "renew"]:
             admin.execute("INSERT INTO public.opencode_sessions VALUES (%s, 'mini', 'owner', 'project', 'active', 'nonce', %s, %s, NULL, 1)",
                           (session, NOW.isoformat(), NOW.isoformat()))
@@ -67,14 +68,15 @@ def main() -> None:
                 assert not waiting.done()
             assert waiting.result(timeout=3) == []
 
-            for attempt, at in [(1, NOW), (2, NOW + timedelta(seconds=15))]:
+            for attempt, at in [(1, NOW), (2, NOW + timedelta(seconds=15)), (3, NOW + timedelta(seconds=30)), (4, NOW + timedelta(seconds=45))]:
                 barrier = Barrier(8)
                 def competing(index: int) -> list[tuple]:
                     barrier.wait(timeout=5)
                     return claim("race", f"hash-{attempt}-{index}", at)
                 rows = [row for result in pool.map(competing, range(8)) for row in result]
                 assert len(rows) == 1, rows
-                assert rows[0][:2] == ("race-0", attempt), rows
+                assert rows[0][:2] == (("race-0", attempt) if attempt <= 3 else ("race-1", 1)), rows
+            assert admin.execute("SELECT count(*) FROM public.opencode_events WHERE event_id = 'race-0:terminal'").fetchone() == (1,)
 
             # A heartbeat renewal wins its command-row lock before the claim.
             # The claimant must read the renewed row after waiting, not reclaim it.

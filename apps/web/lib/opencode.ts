@@ -1,4 +1,69 @@
 export const FORMA_AGENT_RUNTIME_STORAGE_KEY = "forma.agent.runtime.connector_id";
+export const OPENCODE_POLL_MAX_FAILURES = 3;
+export const OPENCODE_STATUS_UNKNOWN = "Could not confirm the request status. It may still be running. Check request status to reconnect.";
+
+/** Persist enough information to reconnect without submitting another command. */
+export type OpenCodePendingTurn = {
+  sessionId: string;
+  commandId: string;
+  projectId: string;
+  targetProjectId?: string | null;
+  message: string;
+  cursor: number;
+  assistantMessage: string | null;
+};
+
+export function parseOpenCodePendingTurn(value: unknown): OpenCodePendingTurn | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  if (![item.sessionId, item.commandId, item.projectId, item.message].every((field) => typeof field === "string" && field.length > 0)
+    || !Number.isSafeInteger(item.cursor) || Number(item.cursor) < 0
+    || (item.targetProjectId != null && typeof item.targetProjectId !== "string")
+    || (item.assistantMessage !== null && typeof item.assistantMessage !== "string")) return null;
+  return item as OpenCodePendingTurn;
+}
+
+export class OpenCodePollingError extends Error {
+  readonly code: "timeout" | "http_error" | "invalid_response" | "transport_error";
+  readonly httpStatus?: number;
+  constructor(code: OpenCodePollingError["code"], httpStatus?: number) {
+    super("OpenCode request status could not be confirmed.");
+    this.code = code;
+    this.httpStatus = httpStatus;
+  }
+}
+
+/** Bounds auth, fetch and body reads, including transports that ignore abort. */
+export async function withOpenCodeDeadline<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  signal?: AbortSignal,
+  timeoutMs = 10_000,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abort = () => {};
+  const deadline = new Promise<never>((_, reject) => {
+    abort = () => {
+      controller.abort();
+      reject(new DOMException("Request cancelled", "AbortError"));
+    };
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new OpenCodePollingError("timeout"));
+    }, timeoutMs);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+  });
+  try {
+    return await Promise.race([deadline, Promise.resolve().then(() => {
+      controller.signal.throwIfAborted();
+      return operation(controller.signal);
+    })]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
+}
 
 export function normalizeOpenCodeModel(value: string): string | null {
   const model = value.trim();
@@ -83,9 +148,10 @@ export function reduceOpenCodeTurn(
       : event.kind === "failed"
         ? event.error?.message || "Forma Agent could not complete this request."
          : "Forma Agent was stopped.";
-    if (event.kind === "failed" && event.error?.code === "connector_timeout") {
-      content += `\n\nCode: ${event.error.code}`;
+    if (event.kind === "failed" && ["connector_timeout", "opencode_command_stalled", "opencode_lease_expired"].includes(event.error?.code || "")) {
+      content += `\n\nCode: ${event.error?.code}`;
     }
+    if (event.kind === "failed" && state.assistantMessage) content = `${state.assistantMessage}\n\n${content}`;
     if (event.kind === "completed" && event.design_outcome) {
       const notice = openCodeDesignNotice(event.design_outcome.project_readiness);
       if (notice) content += `\n\n${notice}`;
@@ -227,18 +293,34 @@ export async function submitOpenCodeCommand(
 
 export async function listOpenCodeEvents(
   apiUrl: string,
-  headers: Record<string, string>,
+  headers: Record<string, string> | (() => Promise<Record<string, string>>),
   sessionId: string,
   cursor: number,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<OpenCodeEventPage> {
-  const response = await fetch(`${apiUrl}/opencode/sessions/${encodeURIComponent(sessionId)}/events?cursor=${cursor}&limit=100`, {
-    headers,
-    cache: "no-store",
-  });
-  const value = record(await responseJson(response));
-  const events = value.events;
-  if (!Array.isArray(events) || !Number.isInteger(Number(value.next_cursor))) throw new Error("Forma Agent returned an invalid event page.");
-  return { events: events.map(parseEvent), next_cursor: Number(value.next_cursor) };
+  return withOpenCodeDeadline(async (signal) => {
+    let response: Response;
+    try {
+      const resolvedHeaders = typeof headers === "function" ? await headers() : headers;
+      signal.throwIfAborted();
+      response = await fetch(`${apiUrl}/opencode/sessions/${encodeURIComponent(sessionId)}/events?cursor=${cursor}&limit=100`, {
+        headers: resolvedHeaders, cache: "no-store", signal,
+      });
+    } catch { throw new OpenCodePollingError("transport_error"); }
+    if (!response.ok) throw new OpenCodePollingError("http_error", response.status);
+    try {
+      const value = record(await response.json());
+      if (!Array.isArray(value.events) || !Number.isSafeInteger(value.next_cursor)) throw new Error();
+      const events = value.events.map(parseEvent);
+      let previous = cursor;
+      for (const event of events) {
+        if (event.session_id !== sessionId || !Number.isSafeInteger(event.sequence) || event.sequence <= previous) throw new Error();
+        previous = event.sequence;
+      }
+      if (value.next_cursor !== previous) throw new Error();
+      return { events, next_cursor: previous };
+    } catch { throw new OpenCodePollingError("invalid_response"); }
+  }, options.signal, options.timeoutMs);
 }
 
 export async function cancelOpenCodeSession(

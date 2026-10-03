@@ -53,6 +53,49 @@ class CommandClaimTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.store.heartbeat(self.store.get_command(first.command_id), first.lease_token)
 
+    def test_polling_connector_cannot_reclaim_abandoned_work_forever(self) -> None:
+        for attempt in range(1, 4):
+            claimed = self.store.claim_next(connector_id="mini", session_id="one", lease_seconds=15)
+            self.assertEqual("command-0", claimed.command_id)
+            self.assertEqual(attempt, claimed.attempt_count)
+            self.clock.return_value = claimed.lease_expires_at
+            self.store.touch_session("one")  # Poll traffic is not command progress.
+        following = self.store.claim_next(connector_id="mini", session_id="one")
+        self.assertEqual("command-1", following.command_id)
+        command = self.store.get_command("command-0")
+        self.assertEqual(OpenCodeCommandStatus.FAILED, command.status)
+        self.assertIsNone(command.lease_token_hash)
+        with self.assertRaises(PermissionError):
+            self.store.heartbeat(command, claimed.lease_token)
+        self.store.reconcile_session("one")
+        events = self.store.list_events("one", 0, 100)
+        self.assertEqual(["command-0:terminal"], [event.event_id for event in events])
+        self.assertEqual("opencode_command_stalled", events[0].error.code)
+        self.assertEqual(2, self.store.next_event_sequence("one"))
+
+    def test_owner_read_settles_exhausted_claim_once_but_preserves_healthy_long_work(self) -> None:
+        for _ in range(3):
+            claimed = self.store.claim_next(connector_id="mini", session_id="one", lease_seconds=15)
+            self.clock.return_value = claimed.lease_expires_at
+        self.store.reconcile_session("one")
+        self.store.reconcile_session("one")
+        self.assertEqual(1, len(self.store.list_events("one", 0, 100)))
+        claimed = self.store.claim_next(connector_id="mini", session_id="one")
+        for _ in range(60):
+            self.clock.return_value += timedelta(seconds=30)
+            self.store.heartbeat(self.store.get_command(claimed.command_id), claimed.lease_token)
+            self.store.reconcile_session("one")
+            self.assertIsNone(self.store.claim_next(connector_id="mini", session_id="one"))
+        self.assertEqual(OpenCodeCommandStatus.RUNNING, self.store.get_command(claimed.command_id).status)
+
+    def test_cancel_wins_over_exhausted_claim(self) -> None:
+        for _ in range(3):
+            claimed = self.store.claim_next(connector_id="mini", session_id="one", lease_seconds=15)
+            self.clock.return_value = claimed.lease_expires_at
+        self.store.reconcile_session("one", cancel=True)
+        self.assertEqual(OpenCodeCommandStatus.CANCELLED, self.store.get_command("command-0").status)
+        self.assertTrue(all(event.error is None for event in self.store.list_events("one", 0, 100)))
+
     def test_cancel_releases_next_command_and_other_sessions_are_independent(self) -> None:
         first = self.store.claim_next(connector_id="mini", session_id="one")
         other = self.store.create_session(session_id="two", connector_id="mini", owner_user_id="owner", project_id=str(uuid4()))

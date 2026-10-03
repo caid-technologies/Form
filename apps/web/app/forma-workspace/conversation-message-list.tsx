@@ -22,7 +22,7 @@ export type ConversationMessage = {
   id: string;
   role: "assistant" | "user" | "system";
   content: string;
-  status?: "idle" | "loading" | "success" | "error" | "cancelled" | "handed-off";
+  status?: "idle" | "loading" | "success" | "error" | "cancelled" | "handed-off" | "interrupted";
   timestamp: string;
   projectId?: string | null;
   revisionId?: string | null;
@@ -160,7 +160,7 @@ export default function ConversationMessageList({
         ? "border-rose-400/40 bg-rose-950/30 text-rose-100"
         : message.status === "success"
           ? "border-emerald-400/35 bg-emerald-950/25 text-emerald-50"
-          : message.status === "cancelled"
+          : message.status === "cancelled" || message.status === "interrupted"
             ? "border-amber-300/35 bg-amber-950/20 text-amber-50"
             : isUser
               ? "border-emerald-500/20 bg-emerald-500/10 text-zinc-100"
@@ -181,7 +181,7 @@ export default function ConversationMessageList({
               <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
             ) : message.status === "success" ? (
               <CheckCircle className="h-3.5 w-3.5 text-emerald-300" />
-            ) : message.status === "error" ? (
+            ) : message.status === "error" || message.status === "interrupted" ? (
               <AlertTriangle className="h-3.5 w-3.5 text-rose-300" />
             ) : message.status === "cancelled" ? (
               <Square className="h-3.5 w-3.5 fill-current text-amber-300" />
