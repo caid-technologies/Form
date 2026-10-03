@@ -11,7 +11,7 @@ export type WorkspaceStatusReason =
   | "run-failure"
   | "timeout";
 
-export type AgentOperationStatus = "idle" | "loading" | "success" | "error" | "cancelled" | "handed-off";
+export type AgentOperationStatus = "idle" | "loading" | "success" | "error" | "cancelled" | "handed-off" | "interrupted";
 
 export type AgentOperationSignal = {
   status?: AgentOperationStatus;

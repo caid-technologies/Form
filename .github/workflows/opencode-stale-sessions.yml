@@ -31,6 +31,7 @@ jobs:
           psql -h localhost -U postgres -d opencode_test -v ON_ERROR_STOP=1 -f tests/opencode/stale_sessions.sql
           psql -h localhost -U postgres -d opencode_test -v ON_ERROR_STOP=1 -f tests/opencode/lease_failures.sql
           psql -h localhost -U postgres -d opencode_test -v ON_ERROR_STOP=1 -f tests/opencode/serial_claims.sql
+          psql -h localhost -U postgres -d opencode_test -v ON_ERROR_STOP=1 -f tests/opencode/stalled_commands.sql
       - name: Verify concurrent claims with independent Postgres connections
         env:
           OPENCODE_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/opencode_test

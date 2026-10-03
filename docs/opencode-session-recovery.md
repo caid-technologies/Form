@@ -112,3 +112,46 @@ fixture `tests/opencode/serial_claims.sql`, and a real Postgres multi-connection
 `tests/opencode/postgres_claim_concurrency.py`. CI runs the latter against its
 `opencode_test` service to prove same-session blocking, independent-session progress,
 concurrent expired-lease reclaim, and a heartbeat renewal racing a claim.
+
+## Stalled claims and browser status recovery
+
+Connector discovery/poll traffic proves connectivity, but does not prove that an
+individual command started. A command may be claimed at most three times. Once
+its third lease expires, the next owner read or connector claim atomically fails
+that command with `opencode_command_stalled`, clears its lease, and records one
+`<command_id>:terminal` event. A connector that keeps polling cannot reset this
+budget. The session remains active and later queued commands can run. A command
+with a healthy renewed lease can continue indefinitely, including on its third
+attempt. Cancellation wins if it settles first; late heartbeats, completion, and
+events cannot revive terminal work.
+
+Browser event requests have a 10-second deadline covering authentication headers,
+fetch, and response parsing. After three consecutive failures (3 seconds between
+retries), local loading stops. A successful poll resets that counter. The message
+says the outcome is unknown and offers **Check request status**. This action only
+reads events for the existing command; it never submits another command or cancels
+remote work. The session/command IDs, event cursor, original prompt, and partial
+reply are persisted with chat history so the same action works after a reload.
+Confirmed failures offer **Try failed build again**. Partial assistant text and
+existing project links remain visible. Stop, unmount, and account changes abort
+polling; responses from an old run cannot update a newer one. Post-completion
+project loading is also bounded, independently of command success.
+
+Apply `supabase/migrations/20261003142232_opencode_stalled_commands.sql` after the
+previous OpenCode migrations and before deploying this backend/frontend release.
+It replaces the claim and reconciliation functions and adds one backend-only
+invoker helper. Existing commands already at three or more expired attempts settle
+on their next read/claim. No connector change or environment variable is required.
+The connector's original failure still needs its own diagnosis; this fix bounds
+its effect on the gateway and chat UI without weakening identity or lease checks.
+
+Additional regressions:
+
+- `tests/opencode/stalled_commands.sql` (disposable PostgreSQL, including role grants).
+- `tests/opencode/postgres_claim_concurrency.py` (concurrent claim exhaustion).
+- `node --experimental-strip-types --test test/opencode-turn.test.ts test/opencode-polling.test.ts` in `apps/web`.
+- `npx playwright test --config playwright.integrity.config.ts --grep 'OpenCode polling recovery'` in `apps/web`.
+
+Diagnostics include claim attempt counts, terminal event IDs/error codes, and
+browser polling failure categories/counts. They exclude credentials, prompts,
+provider responses, and raw exceptions.

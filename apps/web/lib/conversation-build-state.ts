@@ -1,5 +1,5 @@
 export type ConversationBuildMessage = {
-  status?: "idle" | "loading" | "success" | "error" | "cancelled" | "handed-off";
+  status?: "idle" | "loading" | "success" | "error" | "cancelled" | "handed-off" | "interrupted";
   projectId?: string | null;
   contextProjectId?: string | null;
   buildPlanId?: string | null;

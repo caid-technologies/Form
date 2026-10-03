@@ -56,6 +56,7 @@ type HomeChatViewProps = {
   generationActive: boolean;
   onStop: () => void;
   canRetryFailedBuild: boolean;
+  retryLabel?: string;
   retryingFailedBuild: boolean;
   onRetryFailedBuild: () => void;
   hasGenerationInput: boolean;
@@ -99,6 +100,7 @@ export default function HomeChatView({
   generationActive,
   onStop,
   canRetryFailedBuild,
+  retryLabel = "Try failed build again",
   retryingFailedBuild,
   onRetryFailedBuild,
   hasGenerationInput,
@@ -121,7 +123,7 @@ export default function HomeChatView({
   const primaryActionLabel = generationActive
     ? "Stop generation"
     : retryMode
-      ? "Try failed build again"
+      ? retryLabel
       : inputValid
         ? generationMode === "regular" ? "Generate project" : "Send context"
         : "Check hardware idea";

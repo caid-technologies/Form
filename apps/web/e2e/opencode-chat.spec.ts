@@ -908,3 +908,117 @@ for (const outcome of ["retry", "cancel", "reconnect"] as const) {
     expect(errors).toEqual([]);
   });
 }
+
+for (const mode of ["http", "malformed", "hung", "transient", "cancel", "reload"] as const) {
+  test(`OpenCode polling recovery: ${mode}`, async ({ page, baseURL }) => {
+    test.setTimeout(120_000);
+    const appOrigin = new URL(baseURL!).origin;
+    const sessions: OpenCodeSession[] = [];
+    const commands: Array<{ session: string; message: string; key: string }> = [];
+    const cancellations: string[] = [];
+    const chats = new Map<string, Record<string, unknown>>();
+    const unexpected: string[] = [];
+    const errors: string[] = [];
+    const polls: string[] = [];
+    const pending: Array<() => Promise<void>> = [];
+    let recovered = false;
+    let failures = 0;
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.route("**/*", async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (url.origin === appOrigin && !/^\/api(?:\/|$)/.test(url.pathname)) return route.continue();
+      const path = url.pathname.replace(/^\/api(?=\/|$)/, "") || "/";
+      const method = request.method();
+      if (path === "/runtime/config") return route.fulfill({ json: runtimeConfig });
+      if (["/projects", "/my/projects"].includes(path)) return route.fulfill({ json: { items: [], total: 0, has_more: false } });
+      if (path === "/chats") return route.fulfill({ json: [...chats.values()] });
+      if (path.startsWith("/chats/")) {
+        const id = decodeURIComponent(path.slice("/chats/".length));
+        if (method === "PUT") chats.set(id, { ...request.postDataJSON(), created_at: new Date().toISOString() });
+        return route.fulfill({ status: chats.has(id) ? 200 : 404, json: chats.get(id) || { detail: "Chat not found" } });
+      }
+      if (["/a2a/jobs", "/example-project-object-jobs"].includes(path)) return route.fulfill({ json: [] });
+      if (path === "/admin/session") return route.fulfill({ json: { is_admin: false } });
+      if (path === "/pipeline/steps") return route.fulfill({ json: { steps: [] } });
+      if (path === "/video/models") return route.fulfill({ json: { models: [], generation_configured: false } });
+      if (path === "/" || method === "OPTIONS") return route.fulfill({ json: { status: "ok" } });
+      if (path === "/opencode/sessions" && method === "POST") {
+        const session: OpenCodeSession = { session_id: `outage-${sessions.length + 1}`, connector_id: "mini-pc-1", project_id: projectId, owner_user_id: "local-user", status: "active" };
+        sessions.push(session);
+        return route.fulfill({ json: session });
+      }
+      const session = sessions.find((item) => path.startsWith(`/opencode/sessions/${item.session_id}/`));
+      if (session && path.endsWith("/commands") && method === "POST") {
+        const body = request.postDataJSON();
+        commands.push({ session: session.session_id, message: body.message, key: body.idempotency_key });
+        return route.fulfill({ json: { command_id: `${session.session_id}-command`, session_id: session.session_id, project_id: projectId, operation: "project_message", status: "queued" } });
+      }
+      if (session && path.endsWith("/cancel")) {
+        cancellations.push(session.session_id);
+        return route.fulfill({ json: { ...session, status: "cancelled" } });
+      }
+      if (session && path.endsWith("/events")) {
+        polls.push(session.session_id);
+        const cursor = Number(url.searchParams.get("cursor"));
+        if (cursor > 0 && !recovered) {
+          failures += 1;
+          if (mode === "transient" && failures > 1) recovered = true;
+          else if (mode === "hung" || mode === "cancel") return new Promise<void>((resolve) => { pending.push(() => route.fulfill({ json: { events: [], next_cursor: cursor } }).then(resolve).catch(resolve)); });
+          else if (mode === "malformed") return route.fulfill({ body: "invalid JSON" });
+          else return route.fulfill({ status: 503, body: "private upstream failure" });
+        }
+        const events = [event(1, "assistant_message", { session_id: session.session_id, message: "Your partial design is saved." })];
+        if (recovered) events.push(event(2, "failed", {
+          session_id: session.session_id, event_id: `${session.session_id}-command:terminal`, status: "failed",
+          error: { code: "opencode_command_stalled", message: "Forma Agent could not start or resume this request after three attempts. Check the runtime and retry the request.", correlation_id: "poll-test" },
+        }));
+        const filtered = events.filter((item) => item.sequence > cursor);
+        return route.fulfill({ json: { events: filtered, next_cursor: filtered.at(-1)?.sequence ?? cursor } });
+      }
+      if (path === `/projects/${projectId}`) return route.fulfill({ status: 404, json: { detail: "No saved project" } });
+      unexpected.push(`${method} ${path}`);
+      return route.fulfill({ status: 501, json: { detail: "Unmocked endpoint" } });
+    });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const composer = page.getByPlaceholder("Describe the product, constraints, references, and outputs you need…", { exact: true });
+    const stop = page.getByRole("button", { name: "Stop generation", exact: true });
+    const check = page.getByRole("button", { name: "Check request status", exact: true });
+    await composer.fill("Build a printable hinge");
+    await composer.press("Enter");
+    await expect(page.getByText("Your partial design is saved.", { exact: true })).toBeVisible();
+    if (mode === "cancel") {
+      await expect.poll(() => failures).toBe(1);
+      await stop.click();
+      await Promise.all(pending.map((release) => release()));
+      await expect(stop).toHaveCount(0);
+      await expect(check).toHaveCount(0);
+      await expect.poll(() => cancellations.length).toBe(1);
+    } else {
+      if (mode !== "transient") {
+        await expect(check).toBeVisible({ timeout: 50_000 });
+        await expect(stop).toHaveCount(0);
+        await expect(page.getByText(/Your partial design is saved[\s\S]*Could not confirm/)).toBeVisible();
+        expect(failures).toBe(3);
+        if (mode === "reload") {
+          await expect.poll(() => JSON.stringify([...chats.values()])).toContain('"openCodeTurn"');
+          await page.reload({ waitUntil: "domcontentloaded" });
+          await expect(check).toBeVisible();
+          await expect(stop).toHaveCount(0);
+        }
+        recovered = true;
+        await check.click();
+        await Promise.all(pending.map((release) => release()));
+      }
+      await expect(page.getByText(/Code: opencode_command_stalled/)).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText(/Your partial design is saved[\s\S]*Code: opencode_command_stalled/)).toBeVisible();
+      await expect(stop).toHaveCount(0);
+      await expect(check).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Try failed build again", exact: true })).toBeVisible();
+    }
+    expect(sessions).toHaveLength(1);
+    expect(commands).toHaveLength(1); // Reconnection never repeats the POST.
+    expect(unexpected).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+}

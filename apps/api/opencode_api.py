@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import hashlib
+import logging
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
@@ -45,6 +46,8 @@ from forma_core.opencode.store import CommandConflictError, OpenCodeStore, Store
 from forma_core.database import get_project_identity, get_latest_project_revision
 from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/opencode", tags=["opencode"])
 OPENCODE_STORE = OpenCodeStore()
@@ -168,6 +171,12 @@ def list_opencode_events(
     session = _owned_session(session_id, _owner(user))
     _record_connector_unavailable_if_stale(session)
     events = tuple(OPENCODE_STORE.list_events(session.session_id, cursor, limit))
+    for event in events:
+        if event.kind == OpenCodeEventKind.FAILED:
+            logger.warning("opencode_terminal_failure event_id=%s code=%s", event.event_id, event.error.code if event.error else "command_failed", extra={
+                "event": "opencode_terminal_failure", "event_id": event.event_id,
+                "error_code": event.error.code if event.error else "command_failed",
+            })
     next_cursor = events[-1].sequence if events else cursor
     return EventPage(events=events, next_cursor=next_cursor)
 

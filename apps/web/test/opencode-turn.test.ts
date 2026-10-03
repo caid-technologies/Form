@@ -128,3 +128,14 @@ test("connector timeout finishes the matching turn and exposes its safe diagnost
   assert.equal(reduceOpenCodeTurn(expired, event("completed"), "command"), expired);
   assert.equal(reduceOpenCodeTurn(expired, event("working"), "command"), expired);
 });
+
+test("stalled command failures preserve the partial answer and use the canonical terminal event", () => {
+  const partial = reduceOpenCodeTurn(initial, event("assistant_message", { message: "Saved the enclosure." }), "command");
+  const failed = reduceOpenCodeTurn(partial, event("failed", {
+    error: { code: "opencode_command_stalled", message: "The request stalled. Check the runtime and retry.", correlation_id: "event_command:terminal" },
+  }), "command");
+  assert.equal(failed.status, "error");
+  assert.match(failed.content, /^Saved the enclosure\./);
+  assert.match(failed.content, /Code: opencode_command_stalled/);
+  assert.equal(reduceOpenCodeTurn(failed, event("working"), "command"), failed);
+});
