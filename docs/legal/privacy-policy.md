@@ -20,7 +20,7 @@ We may collect the following categories of information:
 
 - Account and contact information, such as name, email address, username, organization, role, and support contact details.
 - Authentication and integration information, such as login metadata, provider selections, masked credential status, and API keys or tokens you choose to save.
-- Project and generation content, such as prompts, uploaded images, project descriptions, chat history, generated hardware IR, BOMs, diagrams, validation results, assembly notes, and concept images.
+- Project and generation content, such as prompts, uploaded images, project descriptions, chat history, generated hardware intermediate representation, BOMs, diagrams, validation results, assembly notes, and concept images.
 - Usage and device information, such as pages viewed, features used, timestamps, browser type, device type, IP address, approximate location, logs, diagnostics, and error reports.
 - Communications, such as support requests, feedback, survey responses, security reports, and email preferences.
 - Payment and billing information, if paid features are offered. Payment card details should be processed by a payment provider and not stored directly by Forma.

@@ -8,11 +8,12 @@ from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from forma_core.runtime import forma_dev_mode_enabled
+from forma_core.runtime import deployment_mode_enabled, forma_dev_mode_enabled
 from forma_core.project_list_cache import invalidate_project_lists
 from forma_core.workspaces.projects.objects import attach_project_object_metadata_to_dict
 from forma_core.workspaces.design_briefs import DesignBrief, DesignBriefCreate
 from forma_core.workspaces.projects import ProjectRevision, ProjectStateError, ProjectStateService
+from forma_core.workspaces.projects.resolver import ProjectReadResolution, ProjectReadResolver
 from forma_core.workspaces.readiness import (
     BuildInitiationOutcome,
     BuildMode,
@@ -37,7 +38,6 @@ from forma_core.persistence.models import (
     Base,
     DBAlphaSignup,
     DBComponentTemplate,
-    DBGeneratedProject,
     DBProjectChat,
     DBUserIntegrationConfig,
     DBUserSettings,
@@ -75,6 +75,10 @@ class DesignBriefNotFoundError(LookupError):
 
 class DesignBriefAccessError(PermissionError):
     """The project id is already owned by a different user."""
+
+
+class CliProjectConflictError(RuntimeError):
+    """A CLI sync write was based on a stale remote revision."""
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -164,10 +168,15 @@ def _warn_ignored_database_urls() -> None:
 
 def _build_supabase_client(url: str, key: str):
     try:
+        import httpx
         from supabase import create_client
+        from supabase.lib.client_options import SyncClientOptions
     except ImportError as exc:
         raise RuntimeError("Supabase client is not installed. Run pip install -r apps/api/requirements.txt.") from exc
-    return create_client(url, key)
+    # The sync Supabase client enables HTTP/2 by default, but its httpcore stream
+    # bookkeeping is not safe when shared by FastAPI's concurrent worker threads.
+    http_client = httpx.Client(http2=False, follow_redirects=True, timeout=120)
+    return create_client(url, key, options=SyncClientOptions(httpx_client=http_client))
 
 
 def _select_database_config() -> tuple[DatabaseConfig, Any, Any]:
@@ -208,11 +217,21 @@ def _select_database_config() -> tuple[DatabaseConfig, Any, Any]:
         return DatabaseConfig(backend="supabase", source=f"SUPABASE_URL+{key_source}", url=url), None, client
 
     if url or key:
+        if deployment_mode_enabled():
+            raise RuntimeError(
+                "FORMA_DEPLOYMENT_MODE=hosted requires SUPABASE_URL plus "
+                "SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY. Refusing to fall back to local SQLite."
+            )
         logger.warning(
             "Supabase client is partially configured. Provide both SUPABASE_URL and "
             "SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SECRET_KEY. Falling back to SQLite."
         )
     else:
+        if deployment_mode_enabled():
+            raise RuntimeError(
+                "FORMA_DEPLOYMENT_MODE=hosted requires Supabase persistence. Set DATABASE_BACKEND=sqlite "
+                "only for an explicitly documented local/self-hosted deployment."
+            )
         _warn_ignored_database_urls()
 
     provider = create_sqlite_provider(source="SQLITE_DATABASE_URL", url=sqlite_url)
@@ -388,6 +407,7 @@ def save_generated_project(
         "project_id": project_id,
         "chat_id": normalized_chat_id,
         "owner_user_id": normalized_owner_user_id,
+        "creation_channel": "hosted",
         "visibility": normalized_visibility,
         "title": title,
         "prompt": prompt,
@@ -409,7 +429,238 @@ def save_generated_project(
     invalidate_project_lists()
 
 
-def publish_project_revision(revision: ProjectRevision, brief: DesignBrief, owner_user_id: str) -> str:
+def persist_legacy_project_projection(
+    *,
+    project_id: str,
+    title: str,
+    prompt: str,
+    hardware_ir: Dict[str, Any],
+    created_at: str,
+    chat_id: Optional[str] = None,
+    owner_user_id: Optional[str] = None,
+    visibility: Optional[str] = "public",
+    create_chat_record: bool = True,
+) -> None:
+    """Write the retained generated-project compatibility projection."""
+
+    save_generated_project(
+        project_id=project_id,
+        title=title,
+        prompt=prompt,
+        hardware_ir=hardware_ir,
+        created_at=created_at,
+        chat_id=chat_id,
+        owner_user_id=owner_user_id,
+        visibility=visibility,
+        create_chat_record=create_chat_record,
+    )
+
+
+def ensure_project_identity(
+    project_id: str,
+    owner_user_id: str,
+    *,
+    title: str = "Untitled Forma Project",
+    prompt: str = "",
+    chat_id: Optional[str] = None,
+    created_at: Optional[str] = None,
+    visibility: str = "public",
+) -> Dict[str, Any]:
+    """Create the canonical identity needed before a chat project can build."""
+
+    canonical_project_id = _canonical_project_id(project_id)
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        raise ValueError("owner_user_id is required.")
+    existing_identity = _DATABASE_REPOSITORY.get_project_identity(canonical_project_id)
+    if existing_identity is not None:
+        existing_owner = _normalize_user_id(existing_identity.get("owner_user_id"))
+        if existing_owner != owner:
+            raise DesignBriefAccessError("Project is not owned by the current user.")
+        if existing_identity.get("status", "active") != "active":
+            raise DesignBriefAccessError("Cannot initialize a deleted project.")
+        title = existing_identity.get("title") or title
+        prompt = existing_identity.get("prompt") or prompt
+        chat_id = existing_identity.get("chat_id") or chat_id
+        created_at = existing_identity.get("created_at") or created_at
+        visibility = existing_identity.get("visibility") or visibility
+    timestamp = created_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    record = {
+        "project_id": canonical_project_id,
+        "owner_user_id": owner,
+        "creation_channel": "hosted",
+        "title": str(title or "Untitled Forma Project").strip() or "Untitled Forma Project",
+        "prompt": str(prompt or "").strip(),
+        "chat_id": _normalize_chat_id(chat_id),
+        "workspace_id": None,
+        "visibility": _normalize_visibility(visibility),
+        "status": "active",
+        "created_at": timestamp,
+        "updated_at": timestamp,
+    }
+    _DATABASE_REPOSITORY.upsert_project_identity(record)
+    return record
+
+
+def update_project_identity(
+    project_id: str,
+    owner_user_id: str,
+    *,
+    title: Optional[str] = None,
+    prompt: Optional[str] = None,
+    visibility: Optional[str] = None,
+) -> bool:
+    """Update canonical project metadata; compatibility projections are rebuilt separately."""
+    canonical_project_id = _canonical_project_id(project_id)
+    owner = _normalize_user_id(owner_user_id)
+    identity = _DATABASE_REPOSITORY.get_project_identity(canonical_project_id)
+    if not owner or identity is None or _normalize_user_id(identity.get("owner_user_id")) != owner:
+        return False
+    if identity.get("status", "active") != "active":
+        return False
+    record = dict(identity)
+    if title is not None:
+        record["title"] = title.strip() or "Untitled Forma Project"
+    if prompt is not None:
+        record["prompt"] = prompt.strip()
+    if visibility is not None:
+        record["visibility"] = _normalize_visibility(visibility)
+    record["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    _DATABASE_REPOSITORY.upsert_project_identity(record)
+    invalidate_project_lists()
+    return True
+
+
+def ensure_chat_project(
+    project_id: str,
+    owner_user_id: str,
+    *,
+    prompt: str,
+    chat_id: Optional[str] = None,
+    title: Optional[str] = None,
+) -> DesignBrief:
+    """Bootstrap a chat project's canonical identity and first frozen brief."""
+
+    canonical_project_id = _canonical_project_id(project_id)
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        raise ValueError("owner_user_id is required.")
+    existing_identity = get_project_identity(canonical_project_id)
+    existing_legacy = None
+    if existing_identity is None:
+        # Pre-migration local databases still need to bootstrap into the
+        # canonical identity/revision model without making the legacy row the
+        # ongoing source of truth.
+        existing_legacy = get_generated_project(canonical_project_id, include_deleted=True)
+    existing = existing_identity or existing_legacy
+    if existing is not None:
+        existing_owner = _normalize_user_id(
+            existing.get("owner_user_id") if isinstance(existing, dict) else getattr(existing, "owner_user_id", None)
+        )
+        if existing_owner != owner:
+            raise DesignBriefAccessError("Project is not owned by the current user.")
+        existing_status = existing.get("status", "active") if isinstance(existing, dict) else getattr(existing, "status", "active")
+        if existing_status != "active":
+            raise DesignBriefAccessError("Cannot initialize a deleted project.")
+
+    summary = str(prompt or "").strip() or str(title or "Untitled Forma Project").strip()
+    existing_title = existing.get("title") if isinstance(existing, dict) else getattr(existing, "title", None)
+    existing_prompt = existing.get("prompt") if isinstance(existing, dict) else getattr(existing, "prompt", None)
+    existing_created_at = existing.get("created_at") if isinstance(existing, dict) else getattr(existing, "created_at", None)
+    existing_visibility = existing.get("visibility") if isinstance(existing, dict) else getattr(existing, "visibility", "public")
+    identity = ensure_project_identity(
+        canonical_project_id,
+        owner,
+        title=(title or existing_title or summary),
+        prompt=existing_prompt or summary,
+        chat_id=chat_id,
+        created_at=existing_created_at,
+        visibility=existing_visibility or "public",
+    )
+    canonical_chat_id = identity.get("chat_id") or _normalize_chat_id(chat_id)
+
+    try:
+        brief = get_latest_design_brief(canonical_project_id, owner)
+    except DesignBriefNotFoundError:
+        brief = create_design_brief_version(
+            canonical_project_id,
+            owner,
+            DesignBriefCreate(
+                schema_version="1.0",
+                conversation_id=canonical_chat_id or f"project-{canonical_project_id}",
+                intent=summary,
+                summary=summary,
+            ),
+        )
+    return brief
+
+
+def persist_chat_project_revision(
+    project_id: str,
+    owner_user_id: str,
+    state: Any,
+    *,
+    source_job_id: str,
+    prompt: str,
+    chat_id: Optional[str] = None,
+    visibility: Optional[str] = None,
+) -> ProjectRevision:
+    """Commit generated chat output canonically, then refresh its gallery projection."""
+
+    from forma_core.workers.generation import build_generation_draft
+    from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
+
+    canonical_project_id = _canonical_project_id(project_id)
+    brief = ensure_chat_project(
+        canonical_project_id,
+        owner_user_id,
+        prompt=prompt,
+        chat_id=chat_id,
+    )
+    if visibility is not None:
+        if not update_project_identity(
+            canonical_project_id,
+            owner_user_id,
+            visibility=visibility,
+        ):
+            raise ValueError("Could not update the canonical project visibility.")
+    service = ProjectStateService(_DATABASE_REPOSITORY)
+    candidate = HardwareIntermediateRepresentation.model_validate(state)
+    try:
+        service.get_latest(canonical_project_id, owner_user_id)
+    except ProjectStateError as exc:
+        if exc.code != "project_revision_not_found":
+            raise
+        metadata = dict(candidate.assembly_metadata or {})
+        metadata["project_id"] = canonical_project_id
+        metadata.pop("revision", None)
+        candidate.assembly_metadata = metadata
+        revision = service.create_initial_revision(
+            build_generation_draft(brief, candidate),
+            project_id=canonical_project_id,
+            owner_user_id=owner_user_id,
+            design_brief_id=brief.design_brief_id,
+            design_brief_version=brief.brief_version,
+            source_job_id=source_job_id,
+        ).revision
+    else:
+        revision = service.create_revision(
+            build_generation_draft(brief, candidate),
+            project_id=canonical_project_id,
+            owner_user_id=owner_user_id,
+            source_job_id=source_job_id,
+        ).revision
+    publish_project_revision(revision, brief, owner_user_id)
+    return revision
+
+
+def publish_project_revision(
+    revision: ProjectRevision,
+    brief: DesignBrief,
+    owner_user_id: str,
+    *,
+    visibility: Optional[str] = None,
+) -> str:
     """Project canonical state into the public gallery's generated-project store."""
 
     project_id = _canonical_project_id(str(revision.project_id))
@@ -440,6 +691,12 @@ def publish_project_revision(revision: ProjectRevision, brief: DesignBrief, owne
             owner_user_id=normalized_owner_user_id,
         ):
             raise RuntimeError("Could not refresh the generated-project gallery projection.")
+        if visibility is not None and not update_generated_project_metadata(
+            project_id,
+            owner_user_id=normalized_owner_user_id,
+            visibility=visibility,
+        ):
+            raise RuntimeError("Could not refresh the generated-project gallery visibility.")
         return project_id
 
     save_generated_project(
@@ -450,7 +707,7 @@ def publish_project_revision(revision: ProjectRevision, brief: DesignBrief, owne
         created_at=revision.created_at.isoformat().replace("+00:00", "Z"),
         chat_id=brief.conversation_id,
         owner_user_id=normalized_owner_user_id,
-        visibility="public",
+        visibility=visibility or "public",
         # Context gathering already owns the chat and its messages. Publishing
         # the gallery projection must not replace that thread with an empty one.
         create_chat_record=False,
@@ -489,6 +746,406 @@ def list_generated_projects_page(
 
 def get_generated_project(project_id: str, *, include_deleted: bool = False) -> Optional[Any]:
     return _DATABASE_REPOSITORY.get_generated_project(project_id, include_deleted=include_deleted)
+
+
+def get_project_identity(project_id: str) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.get_project_identity(_canonical_project_id(project_id))
+
+
+def resolve_project_for_read(
+    project_id: str,
+    owner_user_id: Optional[str] = None,
+    *,
+    include_deleted: bool = False,
+) -> ProjectReadResolution:
+    """Resolve one readable project across generated, canonical, and CLI stores."""
+
+    return ProjectReadResolver(_DATABASE_REPOSITORY).resolve(
+        project_id,
+        owner_user_id,
+        include_deleted=include_deleted,
+    )
+
+
+def list_cli_projects(owner_user_id: str) -> List[Dict[str, Any]]:
+    """Return private CLI project metadata without project payloads."""
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        return []
+    return [
+        {
+            "project_id": str(record.project_id),
+            "workspace_id": getattr(record, "workspace_id", None),
+            "creation_channel": getattr(record, "creation_channel", "cli"),
+            "title": getattr(record, "title", ""),
+            "revision_id": getattr(record, "current_revision_id", None),
+            "revision": getattr(record, "current_revision", 0),
+            "updated_at": getattr(record, "updated_at", None),
+            "created_at": getattr(record, "created_at", None),
+        }
+        for record in _DATABASE_REPOSITORY.list_cli_projects(owner)
+    ]
+
+
+def list_project_identities(owner_user_id: str) -> List[Dict[str, Any]]:
+    """Return the canonical project identities owned by a user."""
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        return []
+    return [
+        {
+            "project_id": str(record.project_id),
+            "owner_user_id": getattr(record, "owner_user_id", owner),
+            "creation_channel": getattr(record, "creation_channel", "hosted"),
+            "title": getattr(record, "title", ""),
+            "prompt": getattr(record, "prompt", ""),
+            "chat_id": getattr(record, "chat_id", None),
+            "workspace_id": getattr(record, "workspace_id", None),
+            "visibility": getattr(record, "visibility", "public"),
+            "status": getattr(record, "status", "active"),
+            "current_revision": getattr(record, "current_revision", 0),
+            "current_revision_id": getattr(record, "current_revision_id", None),
+            "created_at": getattr(record, "created_at", None),
+            "updated_at": getattr(record, "updated_at", None),
+        }
+        for record in _DATABASE_REPOSITORY.list_project_identities(owner)
+    ]
+
+
+def list_project_gallery_inventory_page(
+    owner_user_id: Optional[str] = None,
+    *,
+    visibility: Optional[str] = None,
+    limit: int = 6,
+    offset: int = 0,
+    search: Optional[str] = None,
+) -> tuple[List[Any], int]:
+    """Return a bounded page of canonical identities and current revisions."""
+    owner = _normalize_user_id(owner_user_id)
+    normalized_visibility = str(visibility or "").strip().lower() or None
+    if normalized_visibility not in {None, "public", "private"}:
+        raise ValueError("visibility must be public or private.")
+    normalized_limit = max(1, min(int(limit), 50))
+    normalized_offset = max(0, int(offset))
+    normalized_search = " ".join(str(search or "").split())[:100] or None
+    return _DATABASE_REPOSITORY.list_project_gallery_inventory_page(
+        owner,
+        visibility=normalized_visibility,
+        limit=normalized_limit,
+        offset=normalized_offset,
+        search=normalized_search,
+    )
+
+
+def list_project_gallery_inventory(
+    owner_user_id: Optional[str] = None,
+    *,
+    visibility: Optional[str] = None,
+    search: Optional[str] = None,
+) -> List[Any]:
+    """Return the compatibility no-limit gallery inventory from the same source."""
+    owner = _normalize_user_id(owner_user_id)
+    normalized_visibility = str(visibility or "").strip().lower() or None
+    if normalized_visibility not in {None, "public", "private"}:
+        raise ValueError("visibility must be public or private.")
+    normalized_search = " ".join(str(search or "").split())[:100] or None
+    return _DATABASE_REPOSITORY.list_project_gallery_inventory(
+        owner,
+        visibility=normalized_visibility,
+        search=normalized_search,
+    )
+
+
+def get_cli_project_revision(
+    project_id: str,
+    owner_user_id: str,
+    revision_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    owner = _normalize_user_id(owner_user_id)
+    project = str(project_id or "").strip()
+    if not owner or not project:
+        return None
+    record = _DATABASE_REPOSITORY.get_cli_project_revision(project, owner, revision_id)
+    if record is None:
+        return None
+    return {
+        "revision_id": str(record.revision_id),
+        "project_id": str(record.project_id),
+        "revision": int(record.revision),
+        "parent_revision_id": getattr(record, "parent_revision_id", None),
+        "manifest": getattr(record, "manifest_json", {}),
+        "created_at": getattr(record, "created_at", None),
+    }
+
+
+def insert_cli_project_revision(
+    manifest: Dict[str, Any],
+    owner_user_id: str,
+    *,
+    expected_revision_id: Optional[str] = None,
+    revision_id: Optional[str] = None,
+    revision: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Create one public-by-default project revision with compare-and-swap ancestry."""
+    owner = _normalize_user_id(owner_user_id)
+    project_id = str(manifest.get("project_id") or "").strip()
+    if not owner or not project_id:
+        raise ValueError("A project_id and authenticated owner are required.")
+    existing = _DATABASE_REPOSITORY.get_cli_project(project_id, owner)
+    existing_identity = _DATABASE_REPOSITORY.get_project_identity(project_id)
+    requested_visibility = manifest.get("visibility") or "public"
+    if existing_identity is not None:
+        requested_visibility = (
+            getattr(existing_identity, "visibility", None)
+            or (existing_identity.get("visibility") if isinstance(existing_identity, dict) else None)
+            or requested_visibility
+        )
+    next_revision = int(revision) if revision is not None else (
+        int(getattr(existing, "current_revision", 0)) + 1 if existing else 1
+    )
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    requested_revision_id = str(revision_id or uuid.uuid4())
+    latest = _DATABASE_REPOSITORY.get_cli_project_revision(project_id, owner)
+    if (
+        latest is not None
+        and int(getattr(latest, "revision", 0)) == next_revision
+        and str(getattr(latest, "parent_revision_id", "") or "") == str(expected_revision_id or "")
+        and getattr(latest, "manifest_json", None) == manifest
+    ):
+        return {
+            "revision_id": str(latest.revision_id),
+            "project_id": project_id,
+            "revision": int(latest.revision),
+            "parent_revision_id": getattr(latest, "parent_revision_id", None),
+            "manifest": getattr(latest, "manifest_json", manifest),
+            "created_at": getattr(latest, "created_at", None),
+        }
+    revision_record = {
+        "revision_id": requested_revision_id,
+        "project_id": project_id,
+        "owner_user_id": owner,
+        "revision": next_revision,
+        "parent_revision_id": expected_revision_id,
+        "manifest_json": manifest,
+        "created_at": now,
+    }
+    project_record = {
+        "project_id": project_id,
+        "workspace_id": manifest.get("workspace_id"),
+        "owner_user_id": owner,
+        "creation_channel": "cli",
+        "visibility": _normalize_visibility(str(requested_visibility)),
+        "title": str(manifest.get("title") or "Untitled Forma Project"),
+        "current_revision": 0,
+        "current_revision_id": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    saved = _DATABASE_REPOSITORY.insert_cli_project_revision(
+        project_record,
+        revision_record,
+        expected_revision_id,
+    )
+    if saved is None:
+        raise CliProjectConflictError("The cloud project changed since the local project was last pulled.")
+    return {
+        "revision_id": str(getattr(saved, "revision_id", requested_revision_id)),
+        "project_id": project_id,
+        "revision": int(getattr(saved, "revision", next_revision)),
+        "parent_revision_id": getattr(saved, "parent_revision_id", expected_revision_id),
+        "manifest": getattr(saved, "manifest_json", manifest),
+        "created_at": getattr(saved, "created_at", now),
+    }
+
+
+def _cli_delivery_from_record(record: Any) -> Optional[Dict[str, Any]]:
+    if record is None:
+        return None
+    return {
+        "delivery_id": str(record.delivery_id),
+        "project_id": str(record.project_id),
+        "owner_user_id": str(record.owner_user_id),
+        "idempotency_key": str(record.idempotency_key),
+        "revision_id": str(record.revision_id),
+        "revision": int(record.revision),
+        "parent_revision_id": getattr(record, "parent_revision_id", None),
+        "manifest": getattr(record, "manifest_json", {}),
+        "manifest_digest": getattr(record, "manifest_digest", "") or "",
+        "status": str(getattr(record, "status", "pending")),
+        "receipt": getattr(record, "receipt_json", None),
+        "created_at": getattr(record, "created_at", None),
+        "completed_at": getattr(record, "completed_at", None),
+    }
+
+
+def get_cli_project_delivery(
+    project_id: str,
+    owner_user_id: str,
+    idempotency_key: str,
+) -> Optional[Dict[str, Any]]:
+    return _cli_delivery_from_record(
+        _DATABASE_REPOSITORY.get_cli_project_delivery(
+            str(project_id or "").strip(),
+            _normalize_user_id(owner_user_id) or "",
+            str(idempotency_key or "").strip(),
+        )
+    )
+
+
+def get_cli_project_delivery_by_id(delivery_id: str) -> Optional[Dict[str, Any]]:
+    return _cli_delivery_from_record(
+        _DATABASE_REPOSITORY.get_cli_project_delivery_by_id(str(delivery_id or "").strip())
+    )
+
+
+def list_cli_project_deliveries(owner_user_id: str) -> List[Dict[str, Any]]:
+    records = _DATABASE_REPOSITORY.list_cli_project_deliveries(_normalize_user_id(owner_user_id) or "")
+    return [_cli_delivery_from_record(record) for record in records]
+
+
+def insert_cli_project_delivery(record: Dict[str, Any]) -> Dict[str, Any]:
+    saved = _DATABASE_REPOSITORY.insert_cli_project_delivery(record)
+    if saved is None:
+        raise ValueError("Delivery session could not be created.")
+    delivery = _cli_delivery_from_record(saved)
+    if delivery is None:
+        raise ValueError("Delivery session could not be created.")
+    return delivery
+
+
+def update_cli_project_delivery(
+    delivery_id: str,
+    owner_user_id: str,
+    updates: Dict[str, Any],
+) -> Optional[Dict[str, Any]]:
+    return _cli_delivery_from_record(
+        _DATABASE_REPOSITORY.update_cli_project_delivery(
+            str(delivery_id or "").strip(),
+            _normalize_user_id(owner_user_id) or "",
+            updates,
+        )
+    )
+
+
+def publish_cli_project(
+    project_id: str,
+    owner_user_id: str,
+    acting_user_id: str,
+) -> Dict[str, Any]:
+    """Flip an owned private CLI project to public and record the explicit action."""
+    project_id = str(project_id or "").strip()
+    owner = _normalize_user_id(owner_user_id)
+    acting = _normalize_user_id(acting_user_id) or owner
+    if not owner or not project_id:
+        raise ValueError("A project_id and authenticated owner are required.")
+    identity = _DATABASE_REPOSITORY.get_project_identity(project_id)
+    if identity is None:
+        raise ValueError("Project identity not found.")
+    identity_owner = (
+        identity.get("owner_user_id")
+        if isinstance(identity, dict)
+        else getattr(identity, "owner_user_id", None)
+    )
+    if identity_owner and str(identity_owner) != owner:
+        raise ValueError("Project is owned by another user.")
+    current = _normalize_visibility(
+        identity.get("visibility")
+        if isinstance(identity, dict)
+        else getattr(identity, "visibility", None)
+    )
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    if current == "public":
+        _DATABASE_REPOSITORY.update_cli_project_visibility(project_id, owner, "public")
+        return {"project_id": project_id, "visibility": "public", "published": False, "already_public": True}
+    _DATABASE_REPOSITORY.upsert_project_identity(
+        {
+            "project_id": project_id,
+            "owner_user_id": owner,
+            "visibility": "public",
+            "updated_at": now,
+        }
+    )
+    _DATABASE_REPOSITORY.update_cli_project_visibility(project_id, owner, "public")
+    _DATABASE_REPOSITORY.record_project_publish_audit(
+        {
+            "id": str(uuid.uuid4()),
+            "project_id": project_id,
+            "owner_user_id": owner,
+            "acting_user_id": acting,
+            "visibility_before": current,
+            "created_at": now,
+        }
+    )
+    invalidate_project_lists()
+    return {
+        "project_id": project_id,
+        "visibility": "public",
+        "published": True,
+        "visibility_before": current,
+        "published_at": now,
+    }
+
+
+def list_project_publish_audits(project_id: str, owner_user_id: str) -> List[Dict[str, Any]]:
+    records = _DATABASE_REPOSITORY.list_project_publish_audits(
+        str(project_id or "").strip(),
+        _normalize_user_id(owner_user_id) or "",
+    )
+    return [
+        {
+            "id": str(record.id),
+            "project_id": str(record.project_id),
+            "owner_user_id": str(record.owner_user_id),
+            "acting_user_id": str(record.acting_user_id),
+            "visibility_before": str(record.visibility_before),
+            "created_at": getattr(record, "created_at", None),
+        }
+        for record in records
+    ]
+
+
+def get_cli_device_authorization(device_code_hash: Optional[str] = None, user_code_hash: Optional[str] = None) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.get_cli_device_authorization(device_code_hash, user_code_hash)
+
+
+def insert_cli_device_authorization(record: Dict[str, Any]) -> Any:
+    return _DATABASE_REPOSITORY.insert_cli_device_authorization(record)
+
+
+def update_cli_device_authorization(
+    device_code_hash: str,
+    updates: Dict[str, Any],
+    *,
+    expected_status: Optional[str] = None,
+    expected_consumed: Optional[bool] = None,
+) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.update_cli_device_authorization(
+        device_code_hash,
+        updates,
+        expected_status=expected_status,
+        expected_consumed=expected_consumed,
+    )
+
+
+def get_cli_token_session(token_hash: str) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.get_cli_token_session(token_hash)
+
+
+def insert_cli_token_session(record: Dict[str, Any]) -> Any:
+    return _DATABASE_REPOSITORY.insert_cli_token_session(record)
+
+
+def revoke_cli_token_sessions(
+    *,
+    token_hash: Optional[str] = None,
+    refresh_token_hash: Optional[str] = None,
+    revoked_at: float,
+) -> int:
+    return _DATABASE_REPOSITORY.revoke_cli_token_sessions(
+        token_hash=token_hash,
+        refresh_token_hash=refresh_token_hash,
+        revoked_at=revoked_at,
+    )
 
 
 def _design_brief_from_record(record: Any) -> DesignBrief:
@@ -756,14 +1413,26 @@ def initialize_project_workflow(
     actor_type: WorkflowActorType = WorkflowActorType.SYSTEM,
     actor_id: Optional[str] = None,
     reason: str = "Project workflow initialized.",
+    chat_id: Optional[str] = None,
+    title: Optional[str] = None,
+    prompt: Optional[str] = None,
 ) -> WorkflowTransitionOutcome:
-    return ProjectWorkflowService(_DATABASE_REPOSITORY).initialize(
+    outcome = ProjectWorkflowService(_DATABASE_REPOSITORY).initialize(
         project_id,
         owner_user_id,
         actor_type=actor_type,
         actor_id=actor_id,
         reason=reason,
     )
+    if chat_id or title or prompt:
+        ensure_project_identity(
+            project_id,
+            owner_user_id,
+            title=title or "Untitled Forma Project",
+            prompt=prompt or "",
+            chat_id=chat_id,
+        )
+    return outcome
 
 
 def get_project_workflow(project_id: str, owner_user_id: str) -> ProjectWorkflow:
@@ -774,6 +1443,25 @@ def get_latest_project_revision(project_id: str, owner_user_id: str) -> ProjectR
     """Read the latest immutable state through the canonical project boundary."""
 
     return ProjectStateService(_DATABASE_REPOSITORY).get_latest(project_id, owner_user_id)
+
+
+def get_project_revision_by_source_job(
+    project_id: str,
+    owner_user_id: str,
+    source_job_id: str,
+) -> Optional[ProjectRevision]:
+    """Return an existing revision for an idempotent worker/source delivery."""
+    return ProjectStateService(_DATABASE_REPOSITORY).get_by_source_job(project_id, owner_user_id, source_job_id)
+
+
+def list_project_revisions(project_id: str, owner_user_id: str, *, limit: int = 21, before: int | None = None) -> List[ProjectRevision]:
+    """Return a bounded page of the owner's saved snapshots."""
+    return ProjectStateService(_DATABASE_REPOSITORY).list_revisions(project_id, owner_user_id, limit=limit, before=before)
+
+
+def get_project_revision_by_id(project_id: str, owner_user_id: str, revision_id: str) -> ProjectRevision:
+    """Resolve the immutable revision referenced by a chat result or history entry."""
+    return ProjectStateService(_DATABASE_REPOSITORY).get_revision_by_id(project_id, owner_user_id, revision_id)
 
 
 def list_latest_project_revisions(owner_user_id: str) -> List[ProjectRevision]:
@@ -811,17 +1499,69 @@ def append_project_revision(
     """Persist an iteration as the next immutable canonical project revision."""
 
     from forma_core.workers.generation import build_generation_draft
-    from forma_core.workspaces.projects.models import HardwareIR
+    from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
     service = ProjectStateService(_DATABASE_REPOSITORY)
-    parent = service.get_latest(project_id, owner_user_id)
+    try:
+        parent = service.get_latest(project_id, owner_user_id)
+    except ProjectStateError as exc:
+        if exc.code != "project_revision_not_found":
+            raise
+
+        # Legacy generated_projects rows have no immutable history. Migrate the
+        # current projection once before appending the requested iteration.
+        legacy = get_generated_project(project_id, include_deleted=True)
+        if legacy is None or getattr(legacy, "status", "active") != "active":
+            raise
+        if str(getattr(legacy, "owner_user_id", "") or "").strip() != str(owner_user_id or "").strip():
+            raise ProjectStateError("project_revision_not_found", "Project revision not found.")
+
+        project_uuid = _canonical_project_id(project_id)
+        try:
+            brief = get_latest_design_brief(project_id, owner_user_id)
+        except DesignBriefNotFoundError:
+            prompt = str(getattr(legacy, "prompt", "") or "").strip()
+            title = str(getattr(legacy, "title", "") or "").strip()
+            brief = create_design_brief_version(
+                project_uuid,
+                owner_user_id,
+                DesignBriefCreate(
+                    schema_version="1.0",
+                    conversation_id=str(getattr(legacy, "chat_id", "") or "").strip()
+                    or f"project-{project_uuid}",
+                    intent=prompt or title or "Update an existing hardware project.",
+                    summary=prompt or title or "Update an existing hardware project.",
+                ),
+            )
+
+        baseline = HardwareIntermediateRepresentation.model_validate(getattr(legacy, "hardware_ir", {}))
+        baseline.assembly_metadata = {
+            **(baseline.assembly_metadata or {}),
+            "project_id": str(project_uuid),
+            "revision": 1,
+        }
+        baseline_draft = build_generation_draft(brief, baseline)
+        try:
+            service.create_initial_revision(
+                baseline_draft,
+                project_id=project_uuid,
+                owner_user_id=owner_user_id,
+                design_brief_id=brief.design_brief_id,
+                design_brief_version=brief.brief_version,
+                source_job_id=f"legacy-migration-{project_uuid}",
+            )
+        except ProjectStateError as migration_exc:
+            if migration_exc.code != "initial_project_revision_exists":
+                raise
+        parent = service.get_latest(project_id, owner_user_id)
+
     brief = service.get_frozen_design_brief(
         project_id,
         owner_user_id,
         parent.design_brief_id,
         parent.design_brief_version,
     )
-    draft = build_generation_draft(brief, HardwareIR.model_validate(state))
+    draft = build_generation_draft(brief, HardwareIntermediateRepresentation.model_validate(state))
     revision = service.create_revision(
         draft,
         project_id=project_id,
@@ -838,6 +1578,7 @@ def create_project_generation_plan(
     *,
     provider_name: Optional[str] = None,
     model_name: Optional[str] = None,
+    generation_mode: str = "regular",
 ):
     """Create or replay the durable initial-generation plan for one frozen build."""
 
@@ -847,17 +1588,23 @@ def create_project_generation_plan(
         GENERATION_WORKER_ID,
         WORKER_CONTRACT_VERSION,
         GenerationWorker,
-        HardwareIRGenerationEngine,
+        HardwareIntermediateRepresentationGenerationEngine,
         WorkerOrchestrator,
         WorkerRequest,
     )
+    from forma_core.workspaces.projects.generation_mode import GenerationMode
+
+    try:
+        normalized_generation_mode = GenerationMode(str(generation_mode or "regular").strip().lower())
+    except ValueError as exc:
+        raise ValueError("generation_mode must be regular or progressive.") from exc
 
     owner = _normalize_user_id(owner_user_id)
     if not owner or owner != build.owner_user_id:
         raise ValueError("The build owner must match owner_user_id.")
     plan_id = f"build-plan-{build.build_id}"
     existing = _DATABASE_REPOSITORY.get_worker_execution_plan(plan_id, owner)
-    engine = HardwareIRGenerationEngine(provider_name=provider_name, model_name=model_name)
+    engine = HardwareIntermediateRepresentationGenerationEngine(provider_name=provider_name, model_name=model_name)
     worker = GenerationWorker(ProjectStateService(_DATABASE_REPOSITORY), engine)
     orchestrator = WorkerOrchestrator(
         _DATABASE_REPOSITORY,
@@ -880,7 +1627,16 @@ def create_project_generation_plan(
         capability_id=GENERATION_CAPABILITY_ID,
         input_contract_version=GENERATION_INPUT_VERSION,
         payload={"design_brief": build.brief_snapshot.model_dump(mode="json")},
-        metadata={"build_id": str(build.build_id)},
+        metadata={
+            "build_id": str(build.build_id),
+            "cad_required": False,
+            "generation_mode": normalized_generation_mode.value,
+            **(
+                {"visual_approval_policy": "require_approval"}
+                if normalized_generation_mode == GenerationMode.PROGRESSIVE
+                else {}
+            ),
+        },
     )
     return orchestrator.create_plan([request], owner, max_concurrency=1, plan_id=plan_id)
 
@@ -1007,12 +1763,12 @@ async def execute_project_generation_plan(
 ):
     """Execute or resume a persisted project-generation plan."""
 
-    from forma_core.workers import GenerationWorker, HardwareIRGenerationEngine, WorkerOrchestrator
+    from forma_core.workers import GenerationWorker, HardwareIntermediateRepresentationGenerationEngine, WorkerOrchestrator
 
     owner = _normalize_user_id(owner_user_id)
     worker = GenerationWorker(
         ProjectStateService(_DATABASE_REPOSITORY),
-        HardwareIRGenerationEngine(provider_name=provider_name, model_name=model_name),
+        HardwareIntermediateRepresentationGenerationEngine(provider_name=provider_name, model_name=model_name),
         project_publisher=publish_project_revision,
     )
     orchestrator = WorkerOrchestrator(
@@ -1153,6 +1909,57 @@ def update_generated_project_hardware_ir(
     if updated:
         invalidate_project_lists()
     return updated
+
+
+def refresh_legacy_project_projection(
+    project_id: str,
+    hardware_ir: Dict[str, Any],
+    *,
+    owner_user_id: Optional[str] = None,
+) -> bool:
+    """Refresh the retained legacy projection during compatibility reads."""
+
+    return update_generated_project_hardware_ir(
+        project_id,
+        hardware_ir,
+        owner_user_id=owner_user_id,
+    )
+
+
+def claim_unowned_generated_project(
+    project_id: str,
+    hardware_ir: Dict[str, Any],
+    owner_user_id: str,
+) -> bool:
+    project_id = _canonical_project_id(project_id)
+    hardware_ir = _hardware_ir_with_project_id(project_id, hardware_ir)
+    metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
+    chat_id = _normalize_chat_id(metadata.get("chat_id"))
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        return False
+    identity_claimed = False
+    identity = _DATABASE_REPOSITORY.get_project_identity(project_id)
+    if identity is not None and not _normalize_user_id(identity.get("owner_user_id")):
+        if identity.get("status", "active") != "active":
+            return False
+        identity_record = dict(identity)
+        identity_record["owner_user_id"] = normalized_owner_user_id
+        if chat_id:
+            identity_record["chat_id"] = chat_id
+        identity_record["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        _DATABASE_REPOSITORY.upsert_project_identity(identity_record)
+        invalidate_project_lists()
+        identity_claimed = True
+    claimed = _DATABASE_REPOSITORY.claim_unowned_generated_project(
+        project_id,
+        hardware_ir,
+        chat_id,
+        normalized_owner_user_id,
+    )
+    if claimed or identity_claimed:
+        invalidate_project_lists()
+    return claimed or identity_claimed
 
 
 def _hardware_ir_with_overview_title(hardware_ir: Any, title: str) -> Optional[Dict[str, Any]]:

@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 export type ProviderMarkId =
   | "anthropic"
   | "baseten"
@@ -52,9 +54,11 @@ export function ProviderMark({
 }) {
   if (!isProviderMarkId(id)) return null;
   return (
-    <img
+    <Image
       src={`/provider-marks/${id}.svg`}
       alt=""
+      width={20}
+      height={20}
       className={className}
       draggable={false}
     />

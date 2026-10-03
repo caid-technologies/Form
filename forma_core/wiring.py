@@ -38,6 +38,7 @@ class NetIntent(BaseModel):
     net_type: str
     voltage: Optional[float] = None
     endpoint_ids: List[str] = Field(default_factory=list)
+    replace_net_id: Optional[str] = None
 
 
 class WiringIntent(BaseModel):
@@ -52,7 +53,13 @@ class RejectedNetIntent(BaseModel):
 
 class WiringCompilationResult(BaseModel):
     nets: List[ConnectionNet] = Field(default_factory=list)
+    preserved_nets: List[ConnectionNet] = Field(default_factory=list)
     rejected: List[RejectedNetIntent] = Field(default_factory=list)
+
+    @property
+    def all_nets(self) -> List[ConnectionNet]:
+        """Return preserved nets followed by newly compiled or replaced nets."""
+        return [*self.preserved_nets, *self.nets]
 
     @property
     def issues(self) -> List[ValidationIssue]:
@@ -168,16 +175,38 @@ def compile_wiring_intent(
     """Compile model intent into canonical nets while rejecting only invalid intents."""
     catalog = build_endpoint_catalog(components)
     component_refs = {component.ref_des for component in components}
-    reserved_ids = {net.net_id for net in existing_nets}
+    existing_by_id = {net.net_id: net for net in existing_nets}
+    reserved_ids = set(existing_by_id)
     endpoint_to_net: Dict[str, str] = {}
     for net in existing_nets:
         for pin in net.pins:
             endpoint_to_net[make_endpoint_id(pin.ref_des, pin.pin_id)] = net.net_id
 
     compiled: List[ConnectionNet] = []
+    preserved = list(existing_nets)
+    replaced_net_ids: set[str] = set()
     rejected: List[RejectedNetIntent] = []
     for index, intent in enumerate(wiring.nets):
         intent_issues: List[ValidationIssue] = []
+        replacement_id = str(intent.replace_net_id or "").strip() or None
+        replacement_net = existing_by_id.get(replacement_id) if replacement_id else None
+        if replacement_id and replacement_net is None:
+            intent_issues.append(_validation_issue(
+                "Unknown Replacement Net",
+                f"Wiring intent '{intent.name}' targets unknown net '{replacement_id}'.",
+                "Set replace_net_id to an existing canonical net ID or omit it for a new net.",
+            ))
+        elif replacement_id in replaced_net_ids:
+            intent_issues.append(_validation_issue(
+                "Duplicate Replacement Net",
+                f"Wiring intent '{intent.name}' attempts to replace net '{replacement_id}' more than once.",
+                "Return one replacement intent per canonical net.",
+            ))
+        elif replacement_net is not None:
+            for pin in replacement_net.pins:
+                endpoint_to_net.pop(make_endpoint_id(pin.ref_des, pin.pin_id), None)
+            reserved_ids.discard(replacement_id)
+
         if not intent.endpoint_ids:
             intent_issues.append(_validation_issue(
                 "Empty Net",
@@ -240,21 +269,28 @@ def compile_wiring_intent(
                 ))
 
         if intent_issues:
+            if replacement_net is not None:
+                for pin in replacement_net.pins:
+                    endpoint_to_net[make_endpoint_id(pin.ref_des, pin.pin_id)] = replacement_net.net_id
             rejected.append(RejectedNetIntent(intent_index=index, intent=intent, issues=intent_issues))
             continue
 
         net = ConnectionNet(
-            net_id=_canonical_net_id(intent.name, intent.net_type, reserved_ids),
+            net_id=replacement_id or _canonical_net_id(intent.name, intent.net_type, reserved_ids),
             name=intent.name,
             net_type=intent.net_type,
             voltage=intent.voltage,
             pins=[PinReference(ref_des=entry.ref_des, pin_id=entry.pin_id) for entry in entries],
         )
         compiled.append(net)
+        reserved_ids.add(net.net_id)
+        if replacement_id:
+            preserved = [item for item in preserved if item.net_id != replacement_id]
+            replaced_net_ids.add(replacement_id)
         for endpoint_id in unique_endpoint_ids:
             endpoint_to_net[endpoint_id] = net.net_id
 
-    return WiringCompilationResult(nets=compiled, rejected=rejected)
+    return WiringCompilationResult(nets=compiled, preserved_nets=preserved, rejected=rejected)
 
 
 def derive_pin_mappings(
@@ -302,6 +338,8 @@ _FAILURE_CATEGORIES = {
     "short circuit": "short_circuit",
     "missing power source": "missing_power_net",
     "power source conflict": "intent_compilation_failure",
+    "unknown replacement net": "intent_compilation_failure",
+    "duplicate replacement net": "intent_compilation_failure",
     "repair exhausted": "repair_exhausted",
 }
 

@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.auth import UserContext, require_user_context
+from apps.api.hosted_chat import require_hosted_chat_enabled
 from forma_core.database import (
     get_project_workflow,
     initialize_project_workflow,
@@ -41,6 +42,7 @@ def initialize_workflow_endpoint(
     project_id: UUID,
     user: UserContext = Depends(require_user_context),
 ) -> WorkflowTransitionOutcome:
+    require_hosted_chat_enabled(user)
     try:
         owner = _owner(user)
         return initialize_project_workflow(
@@ -85,6 +87,7 @@ def transition_workflow_endpoint(
     command: WorkflowTransitionCommand,
     user: UserContext = Depends(require_user_context),
 ) -> WorkflowTransitionOutcome:
+    require_hosted_chat_enabled()
     try:
         owner = _owner(user)
         return transition_project_workflow(

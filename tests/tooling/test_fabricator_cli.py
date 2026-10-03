@@ -81,6 +81,8 @@ class FabricatorCliTests(unittest.TestCase):
         provider = Mock()
         provider.validate_configured_model.return_value = SimpleNamespace(
             as_debug_dict=lambda: {"provider": "openai"},
+            provider="openai",
+            requested_model="test-model",
             live_generation_enabled=False,
             validation_error="provider is not configured",
         )

@@ -1,0 +1,28 @@
+name: Ender UI worker bridge
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'apps/web/app/forma-workspace/*export*'
+      - 'apps/web/test/export-job.test.ts'
+      - 'tests/projects/test_slicing_worker_bridge.py'
+      - 'tests/projects/test_ender_exports_api.py'
+      - '.github/workflows/ender-exports.yml'
+permissions:
+  contents: read
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: python -m pip install -r apps/api/requirements.txt pytest
+      - run: python -m pytest tests/projects/test_slicing_worker_bridge.py tests/projects/test_ender_exports_api.py -q
+      - run: node --test apps/web/test/export-job.test.ts

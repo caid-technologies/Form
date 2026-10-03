@@ -128,6 +128,11 @@ file_size_limit = "50MiB"
 public = true
 file_size_limit = "50MiB"
 
+# Private files transferred by the forma-oss CLI project sync commands.
+[storage.buckets.cli-project-artifacts]
+public = false
+file_size_limit = "50MiB"
+
 # Allow connections via S3 compatible clients
 [storage.s3_protocol]
 enabled = true

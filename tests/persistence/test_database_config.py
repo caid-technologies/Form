@@ -61,6 +61,31 @@ class DatabaseConfigSelectionTests(unittest.TestCase):
         self.assertIsNone(client)
         build_client.assert_not_called()
 
+    def test_hosted_mode_fails_closed_without_supabase(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"FORMA_DEPLOYMENT_MODE": "hosted"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "requires Supabase persistence"):
+                database._select_database_config()
+
+    def test_hosted_mode_allows_explicit_sqlite_override(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "FORMA_DEPLOYMENT_MODE": "hosted",
+                "DATABASE_BACKEND": "sqlite",
+            },
+            clear=True,
+        ):
+            config, engine, client = database._select_database_config()
+
+        self.assertEqual("sqlite", config.backend)
+        self.assertEqual("SQLITE_DATABASE_URL", config.source)
+        self.assertIsNotNone(engine)
+        self.assertIsNone(client)
+
 
 if __name__ == "__main__":
     unittest.main()

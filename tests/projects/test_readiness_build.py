@@ -46,6 +46,7 @@ def sqlite_repository() -> Iterator[None]:
             yield
         finally:
             database._DATABASE_REPOSITORY = original
+            provider.dispose()
 
 
 def brief_payload(

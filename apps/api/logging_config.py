@@ -54,7 +54,7 @@ def _tmp_log_fallback_path(path: Path) -> Optional[Path]:
         resolved_tmp_dir = tmp_dir
         resolved_path = path
 
-    if resolved_path.parent == resolved_tmp_dir:
+    if resolved_path.is_relative_to(resolved_tmp_dir):
         return None
     if not _serverless_runtime_detected():
         return None
@@ -207,6 +207,15 @@ def configure_backend_logging() -> None:
     log_path = resolve_backend_log_path()
     if log_path is None:
         return
+
+    # Vercel's deployment directory is read-only. Select its writable temporary
+    # directory before opening the configured file instead of warning on every
+    # cold start. Keep the existing opt-out and non-Vercel fallback behavior.
+    if config.get("VERCEL"):
+        fallback_path = _tmp_log_fallback_path(log_path)
+        if fallback_path is not None:
+            log_path = fallback_path
+            config.set("BACKEND_LOG_FILE", str(log_path))
 
     configured_log_path = _configure_file_logging(log_path, level, formatter, namespaces)
     if configured_log_path is None:

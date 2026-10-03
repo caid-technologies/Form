@@ -1,0 +1,49 @@
+{
+  "format": "forma-cad-history",
+  "version": 1,
+  "source": {
+    "name": "Synthetic bracket",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "system": "solidworks",
+    "version": "synthetic fixture",
+    "units": "mm"
+  },
+  "metadata": {
+    "part_number": "DEMO-BRK",
+    "revision": "A",
+    "description": "Synthetic contract example, not an extracted or validated CAD model",
+    "material": "Aluminum (reference only)",
+    "properties": {"finish": "anodized"}
+  },
+  "parameters": {"width": 40, "height": 20, "thickness": 4, "hole_radius": 3},
+  "inventory_complete": true,
+  "inventory_notes": "Complete inventory of this synthetic two-feature fixture only. The zero hash is a placeholder, not source verification.",
+  "features": [
+    {
+      "id": "base",
+      "name": "Base plate",
+      "kind": "extrude",
+      "source_type": "BossExtrude",
+      "provenance": {"method": "human", "evidence": "Synthetic fixture definition; not a source CAD extraction", "confidence": 1.0},
+      "operation": "new",
+      "profile": "rectangle",
+      "origin": [0, 0, 0],
+      "width": "width",
+      "height": "height",
+      "depth": "thickness"
+    },
+    {
+      "id": "hole",
+      "name": "Mounting hole",
+      "kind": "extrude",
+      "source_type": "CutExtrude",
+      "provenance": {"method": "human", "evidence": "Synthetic fixture definition; not a source CAD extraction", "confidence": 1.0},
+      "depends_on": ["base"],
+      "operation": "cut",
+      "profile": "circle",
+      "origin": [10, 10, 0],
+      "radius": "hole_radius",
+      "depth": "thickness"
+    }
+  ]
+}

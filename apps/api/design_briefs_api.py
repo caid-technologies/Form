@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from apps.api.auth import UserContext, require_user_context
+from apps.api.hosted_chat import require_hosted_chat_enabled
 from forma_core.database import (
     DesignBriefAccessError,
     DesignBriefNotFoundError,
@@ -46,6 +47,7 @@ def create_design_brief_endpoint(
     request: DesignBriefCreate,
     user_context: UserContext = Depends(require_user_context),
 ) -> DesignBrief:
+    require_hosted_chat_enabled(user_context)
     try:
         return create_design_brief_version(
             str(project_id),

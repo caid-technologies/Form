@@ -83,7 +83,7 @@ export const legalDocuments: LegalDocument[] = [
         bullets: [
           "Account and contact information, such as name, email address, organization, role, and support details.",
           "Authentication and integration information, including provider selections, masked credential status, and API keys or tokens you choose to save.",
-          "Project and generation content, including prompts, uploaded images, chat history, generated hardware IR, BOMs, diagrams, validation results, assembly notes, and concept images.",
+          "Project and generation content, including prompts, uploaded images, chat history, generated hardware intermediate representation, BOMs, diagrams, validation results, assembly notes, and concept images.",
           "Usage, device, log, diagnostic, and communication information.",
         ],
       },

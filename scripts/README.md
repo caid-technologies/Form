@@ -18,4 +18,17 @@ Common entrypoints:
 ./scripts/quality/benchmark.sh
 ```
 
+Windows PowerShell development launcher:
+
+```powershell
+.\scripts\development\dev.ps1
+```
+
+Windows PowerShell test equivalent:
+
+```powershell
+.\.venv\Scripts\python.exe -m compileall -q apps/api forma_core evals scripts tests
+.\.venv\Scripts\python.exe -m unittest discover -s tests -t . -v
+```
+
 Scripts should stay thin and call reusable implementations from `forma_core` or `evals` instead of accumulating application logic.

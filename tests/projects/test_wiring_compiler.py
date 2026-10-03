@@ -128,6 +128,36 @@ class WiringCompilerTests(unittest.TestCase):
         self.assertEqual(preserved_dump, initial.nets[0].model_dump())
         self.assertEqual("NET_I2C_CLOCK", repaired.nets[0].net_id)
 
+    def test_targeted_replacement_preserves_unrelated_nets(self) -> None:
+        components = _components()
+        initial = compile_wiring_intent(
+            components,
+            WiringIntent(nets=[
+                NetIntent(name="I2C Data", net_type="I2C", endpoint_ids=["U1.SDA", "SEN1.SDA"]),
+                NetIntent(name="I2C Clock", net_type="I2C", endpoint_ids=["U1.SCL", "SEN1.SCL"]),
+            ]),
+        )
+
+        repaired = compile_wiring_intent(
+            components,
+            WiringIntent(nets=[NetIntent(
+                name="I2C Data Repaired",
+                net_type="I2C",
+                endpoint_ids=["U1.SDA", "SEN1.SDA", "SEN2.SDA"],
+                replace_net_id="NET_I2C_DATA",
+            )]),
+            existing_nets=initial.nets,
+        )
+
+        self.assertEqual(
+            ["NET_I2C_CLOCK", "NET_I2C_DATA"],
+            [net.net_id for net in repaired.all_nets],
+        )
+        self.assertEqual(
+            ["SEN2"],
+            [pin.ref_des for pin in repaired.all_nets[1].pins if pin.ref_des == "SEN2"],
+        )
+
     def test_compiler_rejects_signal_reuse_across_nets(self) -> None:
         result = compile_wiring_intent(
             _components(),

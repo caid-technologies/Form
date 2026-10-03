@@ -26,6 +26,7 @@ from forma_core.selectors import parse_llm_selector, split_llm_selector
 
 
 LLM_ENV_KEYS = {
+    "RUNPOD_PARTI_MODEL",
     "ALLOWED_LLM_MODELS",
     "ALLOWED_LLM_PROVIDERS",
     "ANTHROPIC_API_KEY",

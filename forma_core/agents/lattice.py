@@ -7,6 +7,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from forma_core.agents.contracts import LatticeAgentCard, LatticeCapability, LatticeSchemaContract
+from forma_core.workspaces.projects.context_governance import DEFAULT_CONTEXT_GOVERNANCE_POLICY
 from forma_core.workspaces.projects.objects import ProjectNamespaceDescriptor, list_project_namespaces
 
 
@@ -216,6 +217,7 @@ def namespace_agent_card(descriptor: ProjectNamespaceDescriptor) -> LatticeAgent
             "namespace": descriptor.name,
             "scope": descriptor.scope,
             "agent_kind": profile.get("kind", descriptor.name.rsplit(".", 1)[-1]),
+            "context_governance": DEFAULT_CONTEXT_GOVERNANCE_POLICY.recipient_manifest(descriptor.name),
         },
     )
 

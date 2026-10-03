@@ -1,0 +1,4 @@
+interface:
+  display_name: "Forma Hardware"
+  short_description: "Compile and validate hardware with Forma"
+  default_prompt: "Use $forma-hardware to create a fresh UUID project directory under ~/forma-workspace/<generated-uuid>/, then compile and validate a safe low-voltage hardware prototype entirely inside that directory."

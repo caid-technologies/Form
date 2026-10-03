@@ -14,6 +14,30 @@ class ApplicationRepository(Protocol):
 
     def insert_component_template(self, record: Dict[str, Any]) -> None: ...
 
+    def upsert_project_identity(self, record: Dict[str, Any]) -> Any: ...
+
+    def get_project_identity(self, project_id: str) -> Optional[Any]: ...
+
+    def list_project_identities(self, owner_user_id: str) -> List[Any]: ...
+
+    def list_project_gallery_inventory_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+        search: Optional[str] = None,
+    ) -> tuple[List[Any], int]: ...
+
+    def list_project_gallery_inventory(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        search: Optional[str] = None,
+    ) -> List[Any]: ...
+
     def save_generated_project(
         self,
         record: Dict[str, Any],
@@ -101,6 +125,10 @@ class ApplicationRepository(Protocol):
 
     def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]: ...
 
+    def list_project_revisions(self, project_id: str, owner_user_id: str, *, limit: int, before: int | None = None) -> List[Any]: ...
+
+    def get_project_revision_by_id(self, project_id: str, owner_user_id: str, revision_id: str) -> Optional[Any]: ...
+
     def get_project_revision(
         self,
         project_id: str,
@@ -122,6 +150,79 @@ class ApplicationRepository(Protocol):
     ) -> Optional[Any]: ...
 
     def insert_initial_project_revision(self, record: Dict[str, Any]) -> Optional[Any]: ...
+
+    def get_cli_project(self, project_id: str, owner_user_id: str) -> Optional[Any]: ...
+
+    def update_cli_project_visibility(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        visibility: str,
+    ) -> Optional[Any]: ...
+
+    def list_cli_projects(self, owner_user_id: str) -> List[Any]: ...
+
+    def get_cli_project_revision(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        revision_id: Optional[str] = None,
+    ) -> Optional[Any]: ...
+
+    def insert_cli_project_revision(
+        self,
+        project_record: Dict[str, Any],
+        revision_record: Dict[str, Any],
+        expected_revision_id: Optional[str],
+    ) -> Optional[Any]: ...
+
+    def get_cli_project_delivery(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        idempotency_key: str,
+    ) -> Optional[Any]: ...
+
+    def get_cli_project_delivery_by_id(self, delivery_id: str) -> Optional[Any]: ...
+
+    def list_cli_project_deliveries(self, owner_user_id: str) -> List[Any]: ...
+
+    def insert_cli_project_delivery(self, record: Dict[str, Any]) -> Any: ...
+
+    def update_cli_project_delivery(
+        self,
+        delivery_id: str,
+        owner_user_id: str,
+        updates: Dict[str, Any],
+    ) -> Optional[Any]: ...
+
+    def record_project_publish_audit(self, record: Dict[str, Any]) -> None: ...
+
+    def list_project_publish_audits(self, project_id: str, owner_user_id: str) -> List[Any]: ...
+
+    def get_cli_device_authorization(self, device_code_hash: Optional[str] = None, user_code_hash: Optional[str] = None) -> Optional[Any]: ...
+
+    def insert_cli_device_authorization(self, record: Dict[str, Any]) -> Any: ...
+
+    def update_cli_device_authorization(
+        self,
+        device_code_hash: str,
+        updates: Dict[str, Any],
+        expected_status: Optional[str] = None,
+        expected_consumed: Optional[bool] = None,
+    ) -> Optional[Any]: ...
+
+    def get_cli_token_session(self, token_hash: str) -> Optional[Any]: ...
+
+    def insert_cli_token_session(self, record: Dict[str, Any]) -> Any: ...
+
+    def revoke_cli_token_sessions(
+        self,
+        *,
+        token_hash: Optional[str] = None,
+        refresh_token_hash: Optional[str] = None,
+        revoked_at: float,
+    ) -> int: ...
 
     def get_validation_report(self, report_id: str, owner_user_id: str) -> Optional[Any]: ...
 
@@ -153,6 +254,14 @@ class ApplicationRepository(Protocol):
         hardware_ir: Dict[str, Any],
         chat_id: Optional[str],
         owner_user_id: Optional[str],
+    ) -> bool: ...
+
+    def claim_unowned_generated_project(
+        self,
+        project_id: str,
+        hardware_ir: Dict[str, Any],
+        chat_id: Optional[str],
+        owner_user_id: str,
     ) -> bool: ...
 
     def update_generated_project_metadata(

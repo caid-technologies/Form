@@ -137,7 +137,206 @@
       { "source_ref_des": "BTN2", "target_ref_des": "MCAP2", "relation": "cap centered over switch", "axis": "Y", "offset_mm": -1.5, "notes": "Button cap protrudes through the front bezel." },
       { "source_ref_des": "BTN3", "target_ref_des": "MCAP3", "relation": "cap centered over switch", "axis": "Y", "offset_mm": -1.5, "notes": "Button cap protrudes through the front bezel." }
     ],
+    "motion_intents": [
+      {
+        "motion_id": "rear-cover-hinge",
+        "label": "Open rear service cover",
+        "type": "revolute",
+        "target_ref": "MECH3",
+        "parent_ref": "MECH1",
+        "axis": "Z",
+        "pivot_mm": [-44, 9.6, 0],
+        "min_deg": 0,
+        "max_deg": 105,
+        "notes": "Preview the rear cover opening around its left-side service hinge."
+      },
+      {
+        "motion_id": "play-button-travel",
+        "label": "Press play button",
+        "type": "prismatic",
+        "target_ref": "MCAP1",
+        "parent_ref": "MECH2",
+        "axis": "Y",
+        "pivot_mm": [-18, -10.5, -7],
+        "min_mm": 0,
+        "max_mm": 1.5,
+        "notes": "Preview the printed cap travel toward the tactile switch."
+      }
+    ],
     "manufacturability_rating": "Moderate"
+  },
+  "cad_model": {
+    "adapter": "forma-opencad",
+    "source": "Example OpenCAD kinematics fixture",
+    "kinematics": {
+      "source": "opencad",
+      "coordinate_system": "z-up",
+      "sample_count": 3,
+      "tracks": [
+        {
+          "joint": {
+            "id": "rear-cover-hinge",
+            "label": "Open rear service cover",
+            "type": "revolute",
+            "parent_shape_id": "MECH1-shape",
+            "child_shape_id": "MECH3-shape",
+            "axis": [
+              0,
+              0,
+              1
+            ],
+            "origin_mm": [
+              -44,
+              9.6,
+              0
+            ],
+            "lower_limit": 0,
+            "upper_limit": 1.8325957145940461,
+            "unit": "radian"
+          },
+          "target_ref": "MECH3",
+          "parent_ref": "MECH1",
+          "notes": "Preview the rear cover opening around its left-side service hinge.",
+          "samples": [
+            {
+              "progress": 0,
+              "value": 0,
+              "unit": "radian",
+              "transform": {
+                "translation_mm": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0,
+                  0,
+                  0,
+                  1
+                ]
+              }
+            },
+            {
+              "progress": 0.5,
+              "value": 0.9162978572970231,
+              "unit": "radian",
+              "transform": {
+                "translation_mm": [
+                  -9.598305056820436,
+                  38.663437254330624,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0,
+                  0,
+                  0.4422886902190013,
+                  0.8968727415326883
+                ]
+              }
+            },
+            {
+              "progress": 1,
+              "value": 1.8325957145940461,
+              "unit": "radian",
+              "transform": {
+                "translation_mm": [
+                  -46.11515005213586,
+                  54.5853991897032,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0,
+                  0,
+                  0.7933533402912352,
+                  0.6087614290087207
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "joint": {
+            "id": "play-button-travel",
+            "label": "Press play button",
+            "type": "prismatic",
+            "parent_shape_id": "MECH2-shape",
+            "child_shape_id": "MCAP1-shape",
+            "axis": [
+              0,
+              1,
+              0
+            ],
+            "origin_mm": [
+              -18,
+              -10.5,
+              -7
+            ],
+            "lower_limit": 0,
+            "upper_limit": 1.5,
+            "unit": "mm"
+          },
+          "target_ref": "MCAP1",
+          "parent_ref": "MECH2",
+          "notes": "Preview the printed cap travel toward the tactile switch.",
+          "samples": [
+            {
+              "progress": 0,
+              "value": 0,
+              "unit": "mm",
+              "transform": {
+                "translation_mm": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0,
+                  0,
+                  0,
+                  1
+                ]
+              }
+            },
+            {
+              "progress": 0.5,
+              "value": 0.75,
+              "unit": "mm",
+              "transform": {
+                "translation_mm": [
+                  0,
+                  0.75,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0,
+                  0,
+                  0,
+                  1
+                ]
+              }
+            },
+            {
+              "progress": 1,
+              "value": 1.5,
+              "unit": "mm",
+              "transform": {
+                "translation_mm": [
+                  0,
+                  1.5,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0,
+                  0,
+                  0,
+                  1
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
   },
   "constraints": [
     "Slim and Portable",

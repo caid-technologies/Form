@@ -14,15 +14,15 @@ DEFAULT_EXTERNAL_SOURCE_PROVIDER = "firecrawl"
 SUPPORTED_EXTERNAL_SOURCE_PROVIDERS = {"auto", "none", "disabled", "off", "tavily", "firecrawl"}
 
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    value = config.get(name)
+def _env_bool(name: str, default: bool = False, settings: Optional[Mapping[str, str]] = None) -> bool:
+    value = settings.get(name) if settings is not None else config.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    raw = config.get(name)
+def _env_int(name: str, default: int, minimum: int, maximum: int, settings: Optional[Mapping[str, str]] = None) -> int:
+    raw = settings.get(name) if settings is not None else config.get(name)
     if raw is None:
         return default
     try:
@@ -31,8 +31,8 @@ def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
         return default
 
 
-def _env_float(name: str, default: float, minimum: float, maximum: float) -> float:
-    raw = config.get(name)
+def _env_float(name: str, default: float, minimum: float, maximum: float, settings: Optional[Mapping[str, str]] = None) -> float:
+    raw = settings.get(name) if settings is not None else config.get(name)
     if raw is None:
         return default
     try:
@@ -41,9 +41,9 @@ def _env_float(name: str, default: float, minimum: float, maximum: float) -> flo
         return default
 
 
-def _first_env(names: Iterable[str]) -> Optional[str]:
+def _first_env(names: Iterable[str], settings: Optional[Mapping[str, str]] = None) -> Optional[str]:
     for name in names:
-        value = config.get(name)
+        value = settings.get(name) if settings is not None else config.get(name)
         if value and value.strip():
             return value.strip()
     return None
@@ -178,14 +178,14 @@ class ExternalSourceProviderConfig:
     research_output_length: str = "standard"
 
     @classmethod
-    def from_env(cls, provider_override: Optional[str] = None) -> "ExternalSourceProviderConfig":
-        if _env_bool("EXTERNAL_SOURCE_DISABLED", False) or _env_bool("WEB_RESEARCH_DISABLED", False):
+    def from_env(cls, provider_override: Optional[str] = None, settings: Optional[Mapping[str, str]] = None) -> "ExternalSourceProviderConfig":
+        if _env_bool("EXTERNAL_SOURCE_DISABLED", False, settings) or _env_bool("WEB_RESEARCH_DISABLED", False, settings):
             return cls(provider="none", enabled=False, reason="EXTERNAL_SOURCE_DISABLED or WEB_RESEARCH_DISABLED is true.")
 
         requested = (
             provider_override
-            or config.get("EXTERNAL_SOURCE_PROVIDER")
-            or config.get("WEB_RESEARCH_PROVIDER")
+            or (settings.get("EXTERNAL_SOURCE_PROVIDER") if settings is not None else config.get("EXTERNAL_SOURCE_PROVIDER"))
+            or (settings.get("WEB_RESEARCH_PROVIDER") if settings is not None else config.get("WEB_RESEARCH_PROVIDER"))
             or DEFAULT_EXTERNAL_SOURCE_PROVIDER
         ).strip().lower().replace("_", "-")
         if requested not in SUPPORTED_EXTERNAL_SOURCE_PROVIDERS:
@@ -193,36 +193,39 @@ class ExternalSourceProviderConfig:
 
         search_limit = _env_int(
             "EXTERNAL_SOURCE_SEARCH_LIMIT",
-            _env_int("TAVILY_SEARCH_LIMIT", _env_int("FIRECRAWL_SEARCH_LIMIT", 3, 1, 8), 1, 20),
+            _env_int("TAVILY_SEARCH_LIMIT", _env_int("FIRECRAWL_SEARCH_LIMIT", 3, 1, 8, settings), 1, 20, settings),
             1,
             20,
+            settings,
         )
         timeout = _env_float(
             "EXTERNAL_SOURCE_TIMEOUT_SECONDS",
-            _env_float("TAVILY_TIMEOUT_SECONDS", _env_float("FIRECRAWL_MCP_TIMEOUT_SECONDS", 45.0, 5.0, 180.0), 5.0, 180.0),
+            _env_float("TAVILY_TIMEOUT_SECONDS", _env_float("FIRECRAWL_MCP_TIMEOUT_SECONDS", 45.0, 5.0, 180.0, settings), 5.0, 180.0, settings),
             5.0,
             180.0,
+            settings,
         )
-        search_depth = (config.get("TAVILY_SEARCH_DEPTH") or "basic").strip().lower() or "basic"
-        include_answer = _env_bool("TAVILY_INCLUDE_ANSWER", True)
-        include_raw_content = _env_bool("TAVILY_INCLUDE_RAW_CONTENT", False)
+        get_value = lambda name: settings.get(name) if settings is not None else config.get(name)
+        search_depth = (get_value("TAVILY_SEARCH_DEPTH") or "basic").strip().lower() or "basic"
+        include_answer = _env_bool("TAVILY_INCLUDE_ANSWER", True, settings)
+        include_raw_content = _env_bool("TAVILY_INCLUDE_RAW_CONTENT", False, settings)
         tavily_kwargs = {
             "search_limit": search_limit,
             "timeout_seconds": timeout,
             "search_depth": search_depth,
             "include_answer": include_answer,
             "include_raw_content": include_raw_content,
-            "crawl_max_depth": _env_int("TAVILY_CRAWL_MAX_DEPTH", 1, 1, 5),
-            "crawl_limit": _env_int("TAVILY_CRAWL_LIMIT", 20, 1, 50),
-            "crawl_extract_depth": (config.get("TAVILY_CRAWL_EXTRACT_DEPTH") or "basic").strip().lower() or "basic",
-            "research_model": (config.get("TAVILY_RESEARCH_MODEL") or "auto").strip().lower() or "auto",
-            "research_output_length": (config.get("TAVILY_RESEARCH_OUTPUT_LENGTH") or "standard").strip().lower() or "standard",
+            "crawl_max_depth": _env_int("TAVILY_CRAWL_MAX_DEPTH", 1, 1, 5, settings),
+            "crawl_limit": _env_int("TAVILY_CRAWL_LIMIT", 20, 1, 50, settings),
+            "crawl_extract_depth": (get_value("TAVILY_CRAWL_EXTRACT_DEPTH") or "basic").strip().lower() or "basic",
+            "research_model": (get_value("TAVILY_RESEARCH_MODEL") or "auto").strip().lower() or "auto",
+            "research_output_length": (get_value("TAVILY_RESEARCH_OUTPUT_LENGTH") or "standard").strip().lower() or "standard",
         }
 
         if requested in {"none", "disabled", "off"}:
             return cls(provider="none", enabled=False, reason="External source research is disabled.")
         if requested == "tavily":
-            has_key = bool(_first_env(["TAVILY_API_KEY"]))
+            has_key = bool(_first_env(["TAVILY_API_KEY"], settings))
             return cls(
                 provider="tavily",
                 enabled=has_key,
@@ -230,7 +233,7 @@ class ExternalSourceProviderConfig:
                 **tavily_kwargs,
             )
 
-        firecrawl_config = FirecrawlMCPResearchClient().config
+        firecrawl_config = FirecrawlMCPResearchClient(settings=settings).config
         if requested in {"auto", "firecrawl"} and (requested == "firecrawl" or firecrawl_config.enabled):
             return cls(
                 provider="firecrawl",
@@ -239,7 +242,7 @@ class ExternalSourceProviderConfig:
                 search_limit=firecrawl_config.search_limit or search_limit,
                 timeout_seconds=firecrawl_config.timeout_seconds or timeout,
             )
-        if requested == "auto" and _first_env(["TAVILY_API_KEY"]):
+        if requested == "auto" and _first_env(["TAVILY_API_KEY"], settings):
             return cls(provider="tavily", enabled=True, **tavily_kwargs)
 
         if requested == "firecrawl":
@@ -305,9 +308,9 @@ class NoExternalSourceProvider(ExternalSourceProvider):
 
 
 class FirecrawlExternalSourceProvider(ExternalSourceProvider):
-    def __init__(self, config: Optional[ExternalSourceProviderConfig] = None) -> None:
+    def __init__(self, config: Optional[ExternalSourceProviderConfig] = None, settings: Optional[Mapping[str, str]] = None) -> None:
         super().__init__(config)
-        self.client = FirecrawlMCPResearchClient()
+        self.client = FirecrawlMCPResearchClient(settings=settings)
 
     def research(self, queries: Iterable[str]) -> ExternalSourceLibrary:
         result = self.client.research(queries)
@@ -363,11 +366,15 @@ def _tavily_source_record(value: Mapping[str, Any], *, source_type: str = "web")
 
 
 class TavilyExternalSourceProvider(ExternalSourceProvider):
+    def __init__(self, config: Optional[ExternalSourceProviderConfig] = None, settings: Optional[Mapping[str, str]] = None) -> None:
+        super().__init__(config)
+        self.settings = settings
+
     def research(self, queries: Iterable[str]) -> ExternalSourceLibrary:
         if not self.config.enabled:
             return ExternalSourceLibrary(provider="tavily", configured=False, error=self.config.reason)
 
-        api_key = _first_env(["TAVILY_API_KEY"])
+        api_key = _first_env(["TAVILY_API_KEY"], self.settings)
         if not api_key:
             return ExternalSourceLibrary(provider="tavily", configured=False, error="Set TAVILY_API_KEY to enable Tavily research.")
 
@@ -465,14 +472,15 @@ def build_external_source_provider(
     config: Optional[ExternalSourceProviderConfig] = None,
     *,
     provider: Optional[str] = None,
+    settings: Optional[Mapping[str, str]] = None,
 ) -> ExternalSourceProvider:
-    resolved = config or ExternalSourceProviderConfig.from_env(provider_override=provider)
+    resolved = config or ExternalSourceProviderConfig.from_env(provider_override=provider, settings=settings)
     if not resolved.enabled:
         return NoExternalSourceProvider(resolved)
     if resolved.provider == "tavily":
-        return TavilyExternalSourceProvider(resolved)
+        return TavilyExternalSourceProvider(resolved, settings=settings)
     if resolved.provider == "firecrawl":
-        return FirecrawlExternalSourceProvider(resolved)
+        return FirecrawlExternalSourceProvider(resolved, settings=settings)
     return NoExternalSourceProvider(resolved)
 
 

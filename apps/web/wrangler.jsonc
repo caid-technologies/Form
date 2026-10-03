@@ -4,6 +4,9 @@
   "name": "forma-oss",
   "compatibility_date": "2026-08-04",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "vars": {
+    "NEXT_PUBLIC_API_URL": "https://mcp.caid-technologies.us"
+  },
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"

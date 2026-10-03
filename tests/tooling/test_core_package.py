@@ -27,6 +27,7 @@ class CorePackageTests(unittest.TestCase):
         self.assertEqual("apps.api.main:app", pyproject["tool"]["vercel"]["entrypoint"])
         self.assertEqual("forma_core._version.__version__", pyproject["tool"]["setuptools"]["dynamic"]["version"]["attr"])
         self.assertEqual("forma_core.cli.main:main", pyproject["project"]["scripts"]["forma-core"])
+        self.assertEqual("forma_cli.app:app", pyproject["project"]["scripts"]["forma-oss"])
         self.assertEqual(
             "forma_core.fabricator.main:main",
             pyproject["project"]["scripts"]["fabricator"],
@@ -85,6 +86,7 @@ class CorePackageTests(unittest.TestCase):
         backend_deps = set(pyproject["project"]["optional-dependencies"]["backend"])
 
         self.assertIn("fastapi>=0.124.1", backend_deps)
+        self.assertIn("Pillow>=10.0.0", backend_deps)
         self.assertIn("uvicorn", backend_deps)
         self.assertIn("websockets>=12.0", backend_deps)
         self.assertIn("supabase==2.31.0", backend_deps)
@@ -148,10 +150,10 @@ class CorePackageTests(unittest.TestCase):
 
     def test_generation_package_imports(self) -> None:
         from forma_core.generation import HardwarePipelineOrchestrator, list_workflows
-        from forma_core.workspaces.projects.models import HardwareIR
+        from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
         self.assertEqual("HardwarePipelineOrchestrator", HardwarePipelineOrchestrator.__name__)
-        self.assertEqual("HardwareIR", HardwareIR.__name__)
+        self.assertEqual("HardwareIntermediateRepresentation", HardwareIntermediateRepresentation.__name__)
         self.assertIn("default", [item["id"] for item in list_workflows()])
 
     def test_backend_compatibility_wrappers_reexport_core_objects(self) -> None:
@@ -164,7 +166,7 @@ class CorePackageTests(unittest.TestCase):
         from forma_core import llm as core_llm
         from forma_core.workspaces.projects import models as core_models
 
-        self.assertIs(backend_models.HardwareIR, core_models.HardwareIR)
+        self.assertIs(backend_models.HardwareIntermediateRepresentation, core_models.HardwareIntermediateRepresentation)
         self.assertIs(backend_validation.validate_circuit, core_validation.validate_circuit)
         self.assertIs(backend_llm.resolve_llm_runtime_config, core_llm.resolve_llm_runtime_config)
         self.assertIs(

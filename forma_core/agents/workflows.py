@@ -11,7 +11,9 @@ from forma_core.jobs.source_usage import (
     normalize_generation_workflow_id,
     source_usage_for_workflow,
 )
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
+from forma_core.user_integrations import ResolvedIntegrationSettings
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,7 @@ def get_workflow_debug_config(
     provider_name: Optional[str] = None,
     model_name: Optional[str] = None,
     external_source_provider: Optional[str] = None,
+    settings: Optional[ResolvedIntegrationSettings] = None,
 ) -> Dict[str, Any]:
     normalized = normalize_workflow_id(workflow_id)
     if normalized == WEB_RESEARCH_WORKFLOW_ID:
@@ -64,9 +67,10 @@ def get_workflow_debug_config(
             provider_name=provider_name,
             model_name=model_name,
             external_source_provider=external_source_provider,
+            settings=settings,
         ).get_debug_config()
     return {
-        **HardwarePipelineOrchestrator(provider_name=provider_name, model_name=model_name).get_debug_config(),
+        **HardwarePipelineOrchestrator(provider_name=provider_name, model_name=model_name, settings=settings).get_debug_config(),
         "workflow": DEFAULT_WORKFLOW_ID,
     }
 
@@ -80,8 +84,10 @@ def generate_project_with_workflow(
     provider_name: Optional[str] = None,
     model_name: Optional[str] = None,
     external_source_provider: Optional[str] = None,
+    settings: Optional[ResolvedIntegrationSettings] = None,
     generation_metadata: Optional[Dict[str, Any]] = None,
-) -> HardwareIR:
+    persist_project: bool = True,
+) -> HardwareIntermediateRepresentation:
     normalized = normalize_workflow_id(workflow_id)
     source_usage = source_usage_for_workflow(normalized, external_provider=external_source_provider)
     if normalized == WEB_RESEARCH_WORKFLOW_ID:
@@ -89,6 +95,8 @@ def generate_project_with_workflow(
             provider_name=provider_name,
             model_name=model_name,
             external_source_provider=external_source_provider,
+            settings=settings,
+            persist_project=persist_project,
         ).generate_project(
             prompt,
             image_bytes=image_bytes,
@@ -96,7 +104,12 @@ def generate_project_with_workflow(
             generation_metadata=generation_metadata,
         )
     else:
-        ir = HardwarePipelineOrchestrator(provider_name=provider_name, model_name=model_name).generate_project(
+        ir = HardwarePipelineOrchestrator(
+            provider_name=provider_name,
+            model_name=model_name,
+            persist_project=persist_project,
+            settings=settings,
+        ).generate_project(
             prompt,
             image_bytes=image_bytes,
             image_mime_type=image_mime_type,
@@ -105,7 +118,7 @@ def generate_project_with_workflow(
     public_generation_metadata = {
         key: value
         for key, value in (generation_metadata or {}).items()
-        if key not in {"owner_user_id", "project_prompt"}
+        if key not in {"owner_user_id", "project_prompt"} and value is not None and value != ""
     }
     ir.assembly_metadata = {
         **(ir.assembly_metadata or {}),
@@ -113,4 +126,16 @@ def generate_project_with_workflow(
         "workflow": normalized,
         "source_usage": (ir.assembly_metadata or {}).get("source_usage") or source_usage,
     }
+    ir_metadata = ir.assembly_metadata or {}
+    cad_required = (generation_metadata or {}).get("cad_required")
+    if cad_required is None:
+        cad_required = ir_metadata.get("cad_required") is True
+    if cad_required is True and "cad_generation" not in ir_metadata:
+        ensure_native_cad_model(
+            ir,
+            project_id=ir_metadata.get("project_id"),
+            required=True,
+            authoring_agent=ir_metadata.get("authoring_agent"),
+            workflow=normalized,
+        )
     return ir

@@ -128,10 +128,11 @@ class A2AImageLoggingTests(unittest.TestCase):
         operation = next(item for item in metadata["operation_statuses"] if item["id"] == "image_generation")
         self.assertEqual("failed", metadata["image_output_status"])
         self.assertEqual("configuration", metadata["image_output_error_type"])
-        self.assertEqual("Image provider API key is missing.", metadata["image_output_error"])
+        self.assertEqual("Image generation could not be completed.", metadata["image_output_error"])
+        self.assertRegex(metadata["image_output_error_correlation_id"], r"^err_[0-9a-f]{32}$")
         self.assertEqual("none", metadata["image_output_debug"]["provider"])
         self.assertEqual("https://api.example.test/v1", operation["details"]["image_output_debug"]["base_url"])
-        self.assertIn("debug=", "\n".join(logs.output))
+        self.assertIn("code=image_generation_failed", "\n".join(logs.output))
 
 
 if __name__ == "__main__":

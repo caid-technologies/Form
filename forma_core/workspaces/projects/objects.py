@@ -7,7 +7,7 @@ from typing import Any, Iterable, Mapping, Optional
 
 from pydantic import BaseModel, Field
 
-from forma_core.workspaces.projects.models import HardwareIR, component_detail_payload
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, component_detail_payload
 
 
 PROJECT_OBJECT_TYPE = "forma.project"
@@ -252,15 +252,15 @@ def list_project_namespaces() -> list[ProjectNamespaceDescriptor]:
     return list(DEFAULT_PROJECT_NAMESPACES.descriptors)
 
 
-def coerce_hardware_ir(value: HardwareIR | dict[str, Any]) -> HardwareIR:
-    if isinstance(value, HardwareIR):
+def coerce_hardware_ir(value: HardwareIntermediateRepresentation | dict[str, Any]) -> HardwareIntermediateRepresentation:
+    if isinstance(value, HardwareIntermediateRepresentation):
         return value.model_copy(deep=True)
     if isinstance(value, dict):
-        return HardwareIR.model_validate(value)
-    raise TypeError("project object source must be a HardwareIR or HardwareIR dictionary.")
+        return HardwareIntermediateRepresentation.model_validate(value)
+    raise TypeError("project object source must be a HardwareIntermediateRepresentation or HardwareIntermediateRepresentation dictionary.")
 
 
-def project_object_version(ir: HardwareIR | dict[str, Any]) -> int:
+def project_object_version(ir: HardwareIntermediateRepresentation | dict[str, Any]) -> int:
     hardware_ir = coerce_hardware_ir(ir)
     metadata = hardware_ir.assembly_metadata or {}
     raw_value = metadata.get("revision")
@@ -277,13 +277,13 @@ def _canonical_object_id(value: Any) -> str:
         return str(uuid.uuid4())
 
 
-def _project_object_metadata(ir: HardwareIR) -> dict[str, Any]:
+def _project_object_metadata(ir: HardwareIntermediateRepresentation) -> dict[str, Any]:
     metadata = ir.assembly_metadata or {}
     raw_object = metadata.get("project_object")
     return dict(raw_object) if isinstance(raw_object, dict) else {}
 
 
-def _namespace_versions(ir: HardwareIR, namespaces: Iterable[str]) -> dict[str, int]:
+def _namespace_versions(ir: HardwareIntermediateRepresentation, namespaces: Iterable[str]) -> dict[str, int]:
     object_metadata = _project_object_metadata(ir)
     raw_versions = object_metadata.get("namespace_versions")
     previous_versions = raw_versions if isinstance(raw_versions, dict) else {}
@@ -315,7 +315,7 @@ def _redact_payload_value(value: Any, *, key: str = "", max_string_chars: int = 
     return value
 
 
-def _ir_payload(ir: HardwareIR) -> dict[str, Any]:
+def _ir_payload(ir: HardwareIntermediateRepresentation) -> dict[str, Any]:
     return ir.model_dump(mode="json", exclude_none=True)
 
 
@@ -533,7 +533,7 @@ def _firmware_payload(ir_payload: dict[str, Any], metadata: dict[str, Any]) -> d
     }
 
 
-def namespace_payload(ir: HardwareIR | dict[str, Any], namespace: str) -> dict[str, Any]:
+def namespace_payload(ir: HardwareIntermediateRepresentation | dict[str, Any], namespace: str) -> dict[str, Any]:
     normalized = normalize_project_namespace(namespace)
     if normalized is None:
         raise ValueError("Project namespace is required.")
@@ -541,6 +541,7 @@ def namespace_payload(ir: HardwareIR | dict[str, Any], namespace: str) -> dict[s
     hardware_ir = coerce_hardware_ir(ir)
     payload = _ir_payload(hardware_ir)
     metadata = payload.get("assembly_metadata") or {}
+    cad_model = payload.get("cad_model")
     custom_payloads = metadata.get("namespace_payloads") if isinstance(metadata, dict) else None
     if isinstance(custom_payloads, dict) and isinstance(custom_payloads.get(normalized), dict):
         return _redact_payload_value(custom_payloads[normalized])
@@ -591,6 +592,7 @@ def namespace_payload(ir: HardwareIR | dict[str, Any], namespace: str) -> dict[s
     elif normalized == "product.mech":
         selected_payload = {
             "mechanical": payload.get("mechanical"),
+            "cad_model": cad_model,
             "fabrication_notes": payload.get("fabrication_notes") or [],
             "render_dimensions": metadata.get("render_dimensions"),
             "component_placement_count": metadata.get("component_placement_count"),
@@ -616,7 +618,7 @@ def namespace_payload(ir: HardwareIR | dict[str, Any], namespace: str) -> dict[s
     return _redact_payload_value(selected_payload)
 
 
-def _namespace_names_for_ir(ir: HardwareIR, target_namespace: Optional[str] = None) -> list[str]:
+def _namespace_names_for_ir(ir: HardwareIntermediateRepresentation, target_namespace: Optional[str] = None) -> list[str]:
     object_metadata = _project_object_metadata(ir)
     raw_versions = object_metadata.get("namespace_versions")
     previous_names = list(raw_versions.keys()) if isinstance(raw_versions, dict) else []
@@ -627,7 +629,9 @@ def _namespace_names_for_ir(ir: HardwareIR, target_namespace: Optional[str] = No
     return sorted(dict.fromkeys(names))
 
 
-def build_project_object(ir: HardwareIR | dict[str, Any], *, target_namespace: Optional[str] = None) -> FormaProjectObject:
+def build_project_object(ir: HardwareIntermediateRepresentation | dict[str, Any], *, target_namespace: Optional[str] = None) -> FormaProjectObject:
+    from forma_core.workspaces.projects.context_governance import DEFAULT_CONTEXT_GOVERNANCE_POLICY
+
     hardware_ir = coerce_hardware_ir(ir)
     namespace_names = _namespace_names_for_ir(hardware_ir, target_namespace=target_namespace)
     versions = _namespace_versions(hardware_ir, namespace_names)
@@ -657,16 +661,17 @@ def build_project_object(ir: HardwareIR | dict[str, Any], *, target_namespace: O
             "revision": project_object_version(hardware_ir),
             "updated_at": metadata.get("iterated_at") or metadata.get("generated_at") or utc_now(),
             "namespace_versions": versions,
+            "context_governance": DEFAULT_CONTEXT_GOVERNANCE_POLICY.model_dump(mode="json"),
         },
     )
 
 
 def attach_project_object_metadata(
-    ir: HardwareIR | dict[str, Any],
+    ir: HardwareIntermediateRepresentation | dict[str, Any],
     *,
     target_namespace: Optional[str] = None,
     updated_at: Optional[str] = None,
-) -> HardwareIR:
+) -> HardwareIntermediateRepresentation:
     hardware_ir = coerce_hardware_ir(ir)
     normalized_target = normalize_project_namespace(target_namespace)
     namespace_names = _namespace_names_for_ir(hardware_ir, target_namespace=normalized_target)

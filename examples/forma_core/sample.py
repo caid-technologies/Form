@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from forma_core.workers.generation import HardwareIRGenerationEngine
+from forma_core.workers.generation import HardwareIntermediateRepresentationGenerationEngine
 from forma_core.workspaces.design_briefs import (
     DESIGN_BRIEF_SCHEMA_VERSION,
     DesignBrief,
@@ -64,7 +64,7 @@ def generate_project() -> FormaProjectObject:
         readiness=DesignBriefReadiness.READY,
     )
 
-    engine = HardwareIRGenerationEngine(
+    engine = HardwareIntermediateRepresentationGenerationEngine(
         use_simulation=True,
         generate_image=False,
     )

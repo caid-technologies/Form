@@ -21,7 +21,7 @@ from forma_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
     FunctionalRequirements,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     PinDefinition,
     PinReference,
     ProjectOverview,
@@ -51,7 +51,7 @@ from forma_core.video_review import (
 PROJECT_ID = "11111111-1111-4111-8111-111111111111"
 
 
-def build_sample_ir() -> HardwareIR:
+def build_sample_ir() -> HardwareIntermediateRepresentation:
     component = ComponentInstance(
         ref_des="U1",
         part_number="ESP32-WROOM-32D",
@@ -63,7 +63,7 @@ def build_sample_ir() -> HardwareIR:
             PinDefinition(pin_id="GND", name="Ground", pin_type="Ground", voltage=0.0),
         ],
     )
-    return HardwareIR(
+    return HardwareIntermediateRepresentation(
         overview=ProjectOverview(
             title="Soil Monitor",
             description="A low-voltage soil moisture monitor.",
@@ -107,7 +107,7 @@ class FakeProvider:
     model_name = "gpt-5.5"
     is_configured = True
 
-    def __init__(self, revised_ir: HardwareIR) -> None:
+    def __init__(self, revised_ir: HardwareIntermediateRepresentation) -> None:
         self.revised_ir = revised_ir
         self.prompt = ""
 
@@ -152,7 +152,7 @@ class FakeVideoReviewClient:
     def __init__(self) -> None:
         self.video_url = ""
 
-    def review_video(self, current_ir: HardwareIR, *, video_url: str, original_prompt=None, project_id=None) -> VideoIterationReview:
+    def review_video(self, current_ir: HardwareIntermediateRepresentation, *, video_url: str, original_prompt=None, project_id=None) -> VideoIterationReview:
         self.video_url = video_url
         return VideoIterationReview(
             summary="Display continuity mismatch found.",
@@ -599,11 +599,11 @@ class ProjectIterationTests(unittest.TestCase):
 
     def test_unstructured_review_distillation_strips_model_preamble(self) -> None:
         raw = (
-            "The user wants me to review a generated hardware video against the current HardwareIR. "
-            "I need to inspect the video frames and compare them with the HardwareIR JSON provided. "
-            "First, let me understand what the HardwareIR describes. "
+            "The user wants me to review a generated hardware video against the current HardwareIntermediateRepresentation. "
+            "I need to inspect the video frames and compare them with the HardwareIntermediateRepresentation JSON provided. "
+            "First, let me understand what the HardwareIntermediateRepresentation describes. "
             "Frame 1 shows a full FDM 3D printer with a gantry, bed, nozzle, and LCD control box. "
-            "This is a major mismatch because the HardwareIR only contains an ESP32, OLED display, servo motors, resistor, and LiPo battery."
+            "This is a major mismatch because the HardwareIntermediateRepresentation only contains an ESP32, OLED display, servo motors, resistor, and LiPo battery."
         )
 
         distilled = _distill_unstructured_review_text(raw)
@@ -611,7 +611,7 @@ class ProjectIterationTests(unittest.TestCase):
         self.assertNotIn("The user wants me", distilled)
         self.assertNotIn("I need to inspect", distilled)
         self.assertIn("major mismatch", distilled)
-        self.assertIn("HardwareIR only contains", distilled)
+        self.assertIn("HardwareIntermediateRepresentation only contains", distilled)
 
     def test_unstructured_review_target_prefers_visual_over_visible_battery(self) -> None:
         text = (

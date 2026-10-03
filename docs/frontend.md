@@ -1,6 +1,6 @@
 # Frontend
 
-The frontend is a **Next.js 14** app that visualizes Hardware IR and provides the interactive CAD-style experience.
+The frontend is a **Next.js 15** app that visualizes Hardware Intermediate Representation and provides the interactive CAD-style experience.
 
 ## Core UI features
 - **Prompt input** with optional image upload.
@@ -10,12 +10,20 @@ The frontend is a **Next.js 14** app that visualizes Hardware IR and provides th
 - **Vector schematic** rendered from SVG output.
 - **BOM & sourcing** table.
 - **Assembly instructions** and **mechanical notes** views.
-- **Export** of the Hardware IR package as JSON and build instructions as Markdown.
+- **Export** of the Hardware Intermediate Representation package as JSON and build instructions as Markdown.
 - **3D mechanical scene** for enclosure and component placements.
 
 ## Shape and form-factor iteration
 
 The initial chat asks for the system's overall shape, silhouette, or form factor. Answers can describe enclosed products as well as curved, cylindrical, radial, wearable, folded, structural, and open-frame designs; Forma should not assume a rectangular case.
+
+The paperclip is available in both the initial conversation and saved-project chat
+composers, including after replies and reloads. Images and PDFs use the same preview,
+removal, clipboard, and validation handlers; PDFs retain the 2 MB limit. Project-chat
+attachments go through the existing context-ingestion endpoint with the current
+project and conversation IDs, while text-only project updates retain the iteration
+path. FormaAgent authoring still reports its existing unsupported-attachment notice
+and keeps the selected file and text available for removal or editing.
 
 To redesign an existing project's shape without changing its components, open the project, select the **MECH** tab, and describe the new form in project chat—for example, “Keep these components, but change the body to a curved handheld pod with a thumb rest.” The `product.mech` namespace allows mechanical form, dimensions, placement, material, and fabrication details to change while keeping the BOM and electrical connectivity fixed. Use the BOM or WIRE tab when the requested revision should also change components or wiring.
 
@@ -34,6 +42,18 @@ The UI communicates with the backend API:
 - `GET /api/components` – component catalog
 - `GET /api/projects` – history of generated projects
 - `POST /api/generate` – run the agent pipeline
+
+## Installable viewer package
+
+The reusable project browser and project detail viewer are packaged for publication as `@isayahc/forma-gui`:
+
+```bash
+npm install @isayahc/forma-gui
+```
+
+Import `@isayahc/forma-gui/styles.css` once, then configure `FormaApiClient` with a `baseUrl` and optional `getHeaders` callback. The callback is the authentication boundary for hosted deployments; local single-user APIs can omit it. The package exposes typed `FormaProjectBrowser`, `FormaProjectDetail`, and canonical project contracts without importing Clerk, provider credentials, routing, Tailwind, React Flow, or Three.js.
+
+The first-party project and my-projects pages consume the published package. Run `npm run build` and `npm test` from `packages/forma-gui` before publishing a semver release.
 
 If the backend is offline, the UI can still load example JSONs from `apps/web/public/examples/`.
 

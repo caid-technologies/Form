@@ -241,6 +241,70 @@ def cache_project_list(
         _record_failure("write", exc)
 
 
+
+def _page_data_key(
+    scope: str, owner_user_id: Optional[str], generation: str,
+    limit: int, offset: int, search: Optional[str],
+) -> str:
+    # Keep search text and user identifiers out of Redis keys. Callers pass the
+    # same normalized pagination/search values to both the cache and the DB.
+    query_digest = hashlib.sha256((search or "").encode("utf-8")).hexdigest()
+    return f"{_data_key(scope, owner_user_id, generation)}:page:{limit}:{offset}:{query_digest}"
+
+
+def get_cached_project_page(
+    scope: str, owner_user_id: Optional[str], *, limit: int, offset: int,
+    search: Optional[str] = None,
+) -> tuple[Optional[dict[str, Any]], Optional[str]]:
+    """Read an unpersonalized page using the existing list invalidation token."""
+    client = _available_client()
+    if client is None:
+        return None, None
+    try:
+        generation = _current_generation(client)
+        raw_value = client.get(_page_data_key(scope, owner_user_id, generation, limit, offset, search))
+        if raw_value is None:
+            return None, generation
+        decoded = json.loads(raw_value)
+        if (
+            not isinstance(decoded, dict)
+            or not isinstance(decoded.get("items"), list)
+            or any(not isinstance(item, dict) for item in decoded["items"])
+            or type(decoded.get("total")) is not int
+            or decoded["total"] < 0
+        ):
+            raise ValueError("cached project page has an invalid shape")
+        return decoded, generation
+    except Exception as exc:
+        _record_failure("page read", exc)
+        return None, None
+
+
+def cache_project_page(
+    scope: str, owner_user_id: Optional[str], items: list[dict[str, Any]],
+    total: int, generation: Optional[str], *, limit: int, offset: int,
+    search: Optional[str] = None,
+) -> None:
+    """Cache base records, never response-specific saved/owner capabilities.
+
+    A concurrent invalidation must leave this write in the OLD generation,
+    just like cache_project_list. All existing list invalidations cover pages.
+    """
+    if generation is None:
+        return
+    client = _available_client()
+    if client is None:
+        return
+    try:
+        client.set(
+            _page_data_key(scope, owner_user_id, generation, limit, offset, search),
+            json.dumps({"items": items, "total": total}, separators=(",", ":"), ensure_ascii=False),
+            ex=_cache_ttl_seconds(),
+        )
+    except Exception as exc:
+        _record_failure("page write", exc)
+
+
 def invalidate_project_lists() -> None:
     """Move all project-list readers to a fresh cache generation."""
     client = _available_client()

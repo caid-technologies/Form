@@ -1,0 +1,97 @@
+.forma-gui {
+  --forma-gui-page: var(--forma-page, #141519);
+  --forma-gui-surface: var(--forma-surface, #17181d);
+  --forma-gui-muted-surface: var(--forma-surface-muted, #101115);
+  --forma-gui-border: var(--forma-border, #2c2f37);
+  --forma-gui-text: var(--forma-text-strong, #f8fafc);
+  --forma-gui-body: var(--forma-text-body, #cbd5e1);
+  --forma-gui-muted: var(--forma-text-muted, #94a3b8);
+  --forma-gui-accent: rgb(var(--forma-green-rgb, 52 211 153));
+  box-sizing: border-box;
+  color: var(--forma-gui-body);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.forma-gui *, .forma-gui *::before, .forma-gui *::after { box-sizing: border-box; }
+.forma-gui button, .forma-gui input { font: inherit; }
+.forma-gui button { cursor: pointer; }
+.forma-gui button:disabled { cursor: not-allowed; opacity: .5; }
+.forma-gui-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.forma-gui-browser, .forma-gui-detail { width: 100%; min-width: 0; background: var(--forma-gui-page); }
+.forma-gui-browser { padding: clamp(1rem, 3vw, 2rem); }
+.forma-gui-browser-heading, .forma-gui-detail-header, .forma-gui-section-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
+.forma-gui-browser-heading { margin-bottom: 1.25rem; }
+.forma-gui-browser h2, .forma-gui-detail h1, .forma-gui-detail h2, .forma-gui-detail h3, .forma-gui-browser h3 { color: var(--forma-gui-text); margin: 0; }
+.forma-gui-browser h2 { font-size: 1.1rem; }
+.forma-gui-browser-heading p, .forma-gui-muted { color: var(--forma-gui-muted); font-size: .8rem; margin: .35rem 0 0; }
+.forma-gui-search { width: min(100%, 20rem); }
+.forma-gui-search input { width: 100%; height: 2.35rem; border: 1px solid var(--forma-gui-border); border-radius: .55rem; background: var(--forma-gui-surface); color: var(--forma-gui-text); padding: 0 .75rem; outline: none; }
+.forma-gui-search input:focus { border-color: var(--forma-gui-accent); }
+.forma-gui-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: .75rem; }
+.forma-gui-card { min-width: 0; overflow: hidden; border: 1px solid var(--forma-gui-border); border-radius: .8rem; background: var(--forma-gui-surface); transition: border-color .15s ease, transform .15s ease; }
+.forma-gui-card[role="link"] { cursor: pointer; }
+.forma-gui-card[role="link"]:hover, .forma-gui-card[role="link"]:focus-visible { border-color: var(--forma-gui-accent); outline: none; transform: translateY(-1px); }
+.forma-gui-card-image { display: grid; aspect-ratio: 4 / 3; place-items: center; overflow: hidden; border-bottom: 1px solid var(--forma-gui-border); background: var(--forma-gui-muted-surface); color: var(--forma-gui-muted); font: 600 .62rem/1.2 ui-monospace, monospace; letter-spacing: .14em; }
+.forma-gui-card-image img { width: 100%; height: 100%; object-fit: cover; }
+.forma-gui-card-body { display: grid; gap: .75rem; padding: .9rem; }
+.forma-gui-card-title-row { display: flex; align-items: start; justify-content: space-between; gap: .5rem; }
+.forma-gui-card-title-row h3 { overflow: hidden; font-size: .9rem; line-height: 1.3; text-overflow: ellipsis; }
+.forma-gui-card-title-row span, .forma-gui-card-meta { color: var(--forma-gui-muted); font-size: .7rem; white-space: nowrap; }
+.forma-gui-card-description { display: -webkit-box; min-height: 2.6em; overflow: hidden; margin: 0; color: var(--forma-gui-muted); font-size: .78rem; line-height: 1.45; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.forma-gui-card-meta { display: flex; justify-content: space-between; gap: .75rem; }
+.forma-gui-card-actions { display: flex; gap: .5rem; }
+.forma-gui-card-actions button, .forma-gui-pagination button, .forma-gui-state button, .forma-gui-back { border: 1px solid var(--forma-gui-border); border-radius: .45rem; background: transparent; color: var(--forma-gui-body); padding: .4rem .65rem; font-size: .72rem; }
+.forma-gui-card-actions button:hover, .forma-gui-pagination button:hover, .forma-gui-state button:hover, .forma-gui-back:hover { border-color: var(--forma-gui-accent); color: var(--forma-gui-text); }
+.forma-gui-pagination { display: flex; align-items: center; justify-content: center; gap: 1rem; padding-top: 1rem; color: var(--forma-gui-muted); font-size: .75rem; }
+.forma-gui-state { display: grid; gap: .35rem; min-height: 9rem; place-content: center; border: 1px dashed var(--forma-gui-border); border-radius: .8rem; padding: 2rem; text-align: center; }
+.forma-gui-state strong { color: var(--forma-gui-text); font-size: .9rem; }
+.forma-gui-state span { color: var(--forma-gui-muted); font-size: .78rem; }
+.forma-gui-state-error { border-color: color-mix(in srgb, #fb7185 45%, var(--forma-gui-border)); }
+.forma-gui-card-skeleton { min-height: 17rem; animation: forma-gui-pulse 1.4s ease-in-out infinite; background: linear-gradient(110deg, var(--forma-gui-surface) 30%, var(--forma-gui-muted-surface) 45%, var(--forma-gui-surface) 60%); background-size: 200% 100%; }
+@keyframes forma-gui-pulse { to { background-position-x: -200%; } }
+.forma-gui-detail { min-height: 100%; }
+.forma-gui-detail-header { align-items: center; padding: 1.1rem clamp(1rem, 3vw, 2rem); border-bottom: 1px solid var(--forma-gui-border); background: var(--forma-gui-surface); }
+.forma-gui-detail-header h1 { margin-top: .25rem; font-size: clamp(1.1rem, 2vw, 1.5rem); }
+.forma-gui-kicker { display: block; color: var(--forma-gui-muted); font-size: .65rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.forma-gui-tabs { display: flex; gap: .2rem; overflow-x: auto; padding: .45rem .75rem; border-bottom: 1px solid var(--forma-gui-border); background: var(--forma-gui-surface); }
+.forma-gui-tabs button { flex: 0 0 auto; border: 0; border-radius: .45rem; background: transparent; color: var(--forma-gui-muted); padding: .5rem .7rem; font-size: .75rem; }
+.forma-gui-tabs button:hover, .forma-gui-tabs button[aria-current="page"] { background: color-mix(in srgb, var(--forma-gui-accent) 13%, transparent); color: var(--forma-gui-accent); }
+.forma-gui-detail-content { max-width: 64rem; margin: 0 auto; padding: clamp(1rem, 3vw, 2rem); }
+.forma-gui-stack { display: grid; gap: 1rem; }
+.forma-gui-panel { min-width: 0; border: 1px solid var(--forma-gui-border); border-radius: .8rem; background: var(--forma-gui-surface); padding: clamp(1rem, 2vw, 1.35rem); }
+.forma-gui-panel h2 { margin-top: .3rem; font-size: 1rem; }
+.forma-gui-lead { max-width: 52rem; margin: .8rem 0 0; color: var(--forma-gui-body); font-size: .9rem; line-height: 1.7; }
+.forma-gui-hero { width: 100%; max-height: 28rem; border: 1px solid var(--forma-gui-border); border-radius: .8rem; object-fit: cover; }
+.forma-gui-tags { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: 1rem; }
+.forma-gui-tags span { border: 1px solid var(--forma-gui-border); border-radius: .35rem; color: var(--forma-gui-muted); padding: .3rem .45rem; font-size: .68rem; }
+.forma-gui-stat-grid, .forma-gui-dimensions { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: .65rem; }
+.forma-gui-stat { display: grid; gap: .3rem; border: 1px solid var(--forma-gui-border); border-radius: .55rem; background: var(--forma-gui-muted-surface); padding: .75rem; }
+.forma-gui-stat span { color: var(--forma-gui-muted); font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; }
+.forma-gui-stat strong { color: var(--forma-gui-text); font-size: .9rem; }
+.forma-gui-note, .forma-gui-empty { color: var(--forma-gui-muted); font-size: .78rem; }
+.forma-gui-table-wrap { overflow-x: auto; margin-top: 1rem; }
+.forma-gui-table { width: 100%; min-width: 36rem; border-collapse: collapse; font-size: .78rem; }
+.forma-gui-table th { color: var(--forma-gui-muted); font-size: .65rem; font-weight: 700; letter-spacing: .08em; text-align: left; text-transform: uppercase; }
+.forma-gui-table th, .forma-gui-table td { border-bottom: 1px solid var(--forma-gui-border); padding: .75rem .5rem; vertical-align: top; }
+.forma-gui-table td { color: var(--forma-gui-body); }
+.forma-gui-table td:first-child { color: var(--forma-gui-text); }
+.forma-gui-table small { display: block; max-width: 25rem; margin-top: .25rem; color: var(--forma-gui-muted); line-height: 1.4; }
+.forma-gui-findings, .forma-gui-steps, .forma-gui-artifacts { display: grid; gap: .65rem; margin-top: 1rem; }
+.forma-gui-finding, .forma-gui-success, .forma-gui-warning { border: 1px solid var(--forma-gui-border); border-radius: .55rem; padding: .75rem; }
+.forma-gui-finding > span { color: var(--forma-gui-accent); font-size: .65rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.forma-gui-finding p { margin: .4rem 0; color: var(--forma-gui-body); font-size: .8rem; line-height: 1.5; }
+.forma-gui-finding small { color: var(--forma-gui-muted); }
+.forma-gui-finding-error, .forma-gui-finding-critical { border-color: #fb718577; }
+.forma-gui-finding-warning { border-color: #fbbf2477; }
+.forma-gui-success { border-color: #34d39977; color: var(--forma-gui-accent); font-size: .8rem; }
+.forma-gui-schematic { display: block; width: 100%; max-height: 42rem; margin-top: 1rem; border: 1px solid var(--forma-gui-border); border-radius: .55rem; background: #fff; object-fit: contain; }
+.forma-gui-code { max-height: 36rem; overflow: auto; margin: 1rem 0 0; border-radius: .55rem; background: var(--forma-gui-muted-surface); color: var(--forma-gui-body); padding: 1rem; font: .72rem/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
+.forma-gui-steps article { display: grid; grid-template-columns: 2.25rem 1fr; gap: .75rem; border-bottom: 1px solid var(--forma-gui-border); padding: .75rem 0; }
+.forma-gui-steps article > strong { display: grid; place-items: center; width: 2rem; height: 2rem; border: 1px solid var(--forma-gui-border); border-radius: .45rem; color: var(--forma-gui-text); font-size: .8rem; }
+.forma-gui-steps h3 { font-size: .85rem; }
+.forma-gui-steps p { margin: .4rem 0 0; color: var(--forma-gui-body); font-size: .8rem; line-height: 1.55; }
+.forma-gui-warning { margin-top: .65rem; border-color: #fb718577; color: #fda4af; font-size: .75rem; line-height: 1.5; }
+.forma-gui-artifacts a { display: flex; justify-content: space-between; gap: 1rem; border: 1px solid var(--forma-gui-border); border-radius: .55rem; color: var(--forma-gui-text); padding: .75rem; text-decoration: none; }
+.forma-gui-artifacts a:hover { border-color: var(--forma-gui-accent); }
+.forma-gui-artifacts small { color: var(--forma-gui-muted); }
+@media (max-width: 600px) { .forma-gui-browser-heading, .forma-gui-detail-header { align-items: stretch; flex-direction: column; } .forma-gui-search { width: 100%; } .forma-gui-card-grid { grid-template-columns: 1fr; } .forma-gui-artifacts a { align-items: start; flex-direction: column; gap: .35rem; } }

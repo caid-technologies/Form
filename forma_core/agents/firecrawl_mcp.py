@@ -10,21 +10,22 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 
 DEFAULT_FIRECRAWL_MCP_COMMAND = "npx -y firecrawl-mcp"
+Settings = Mapping[str, str]
 
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    value = config.get(name)
+def _env_bool(name: str, default: bool = False, settings: Optional[Settings] = None) -> bool:
+    value = settings.get(name) if settings is not None else config.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    raw = config.get(name)
+def _env_int(name: str, default: int, minimum: int, maximum: int, settings: Optional[Settings] = None) -> int:
+    raw = settings.get(name) if settings is not None else config.get(name)
     if raw is None:
         return default
     try:
@@ -42,12 +43,12 @@ class FirecrawlMCPConfig:
     reason: Optional[str] = None
 
     @classmethod
-    def from_env(cls) -> "FirecrawlMCPConfig":
-        if _env_bool("FIRECRAWL_MCP_DISABLED", False):
+    def from_env(cls, settings: Optional[Settings] = None) -> "FirecrawlMCPConfig":
+        if _env_bool("FIRECRAWL_MCP_DISABLED", False, settings):
             return cls(enabled=False, reason="FIRECRAWL_MCP_DISABLED is true.")
 
-        configured_command = config.get("FIRECRAWL_MCP_COMMAND")
-        api_key = config.get("FIRECRAWL_API_KEY")
+        configured_command = settings.get("FIRECRAWL_MCP_COMMAND") if settings is not None else config.get("FIRECRAWL_MCP_COMMAND")
+        api_key = settings.get("FIRECRAWL_API_KEY") if settings is not None else config.get("FIRECRAWL_API_KEY")
         if configured_command:
             command = shlex.split(configured_command)
         elif api_key:
@@ -61,8 +62,8 @@ class FirecrawlMCPConfig:
         if not command:
             return cls(enabled=False, reason="FIRECRAWL_MCP_COMMAND resolved to an empty command.")
 
-        timeout = float(_env_int("FIRECRAWL_MCP_TIMEOUT_SECONDS", 45, 5, 180))
-        search_limit = _env_int("FIRECRAWL_SEARCH_LIMIT", 3, 1, 8)
+        timeout = float(_env_int("FIRECRAWL_MCP_TIMEOUT_SECONDS", 45, 5, 180, settings))
+        search_limit = _env_int("FIRECRAWL_SEARCH_LIMIT", 3, 1, 8, settings)
         return cls(enabled=True, command=command, timeout_seconds=timeout, search_limit=search_limit)
 
 
@@ -146,16 +147,17 @@ class FirecrawlResearchResult:
 
 
 class _MCPStdioSession:
-    def __init__(self, command: List[str], timeout_seconds: float):
+    def __init__(self, command: List[str], timeout_seconds: float, settings: Optional[Settings] = None):
         self.command = command
         self.timeout_seconds = timeout_seconds
+        self.settings = settings
         self._next_id = 1
         self._responses: "queue.Queue[Dict[str, Any]]" = queue.Queue()
         self._stderr_lines: "queue.Queue[str]" = queue.Queue()
         self.process: Optional[subprocess.Popen[bytes]] = None
 
     def __enter__(self) -> "_MCPStdioSession":
-        env = config.snapshot()
+        env = dict(self.settings) if self.settings is not None else config.snapshot()
         self.process = subprocess.Popen(
             self.command,
             stdin=subprocess.PIPE,
@@ -396,8 +398,9 @@ def _flatten_firecrawl_hits(value: Any) -> List[FirecrawlSearchHit]:
 
 
 class FirecrawlMCPResearchClient:
-    def __init__(self, config: Optional[FirecrawlMCPConfig] = None):
-        self.config = config or FirecrawlMCPConfig.from_env()
+    def __init__(self, config: Optional[FirecrawlMCPConfig] = None, settings: Optional[Settings] = None):
+        self.settings = settings
+        self.config = config or FirecrawlMCPConfig.from_env(settings)
 
     def research(self, queries: Iterable[str]) -> FirecrawlResearchResult:
         if not self.config.enabled:
@@ -408,7 +411,7 @@ class FirecrawlMCPResearchClient:
             return FirecrawlResearchResult(configured=True, error="No research queries were provided.")
 
         try:
-            with _MCPStdioSession(self.config.command, self.config.timeout_seconds) as session:
+            with _MCPStdioSession(self.config.command, self.config.timeout_seconds, self.settings) as session:
                 tools_result = session.request("tools/list")
                 tools = tools_result.get("tools") or []
                 tool_names = [tool.get("name") for tool in tools if isinstance(tool, dict)]

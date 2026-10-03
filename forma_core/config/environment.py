@@ -2,8 +2,9 @@
 
 Application code imports :data:`config` instead of reading ``os.getenv``
 directly. The object intentionally remains live: user-scoped integration
-settings are applied to the process environment before a request is resolved,
-and tests commonly patch the environment within a context manager.
+settings are resolved into explicit request snapshots by the hosted API, while
+tests and local CLI flows may still patch the environment within a context
+manager.
 """
 
 from __future__ import annotations

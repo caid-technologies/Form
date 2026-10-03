@@ -16,7 +16,7 @@ from apps.api.user_integrations_api import (
     _store_for_context,
     image_model_test_available,
     router,
-    test_image_model,
+    test_image_model as run_image_model_test,
     update_user_integration,
 )
 from forma_core.user_integrations import SupabaseUserIntegrationStore, SupabaseWorkspaceIntegrationStore
@@ -169,10 +169,10 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
         request = ImageModelTestRequest(provider="gmi", model="seedream-5.0-pro", prompt="  test render  ")
         with patch.dict(os.environ, {}, clear=True), patch(
             "apps.api.user_integrations_api._store_for_context", return_value=object()
-        ), patch("apps.api.user_integrations_api.apply_user_integrations_to_environment"), patch(
+        ), patch("apps.api.user_integrations_api.resolve_user_integration_settings", return_value={}), patch(
             "apps.api.user_integrations_api.build_image_provider", return_value=provider
         ):
-            response = test_image_model(request, HOSTED_CONTEXT)
+            response = run_image_model_test(request, HOSTED_CONTEXT)
 
         self.assertTrue(response["ok"])
         self.assertEqual("test render", provider.prompt)
@@ -183,7 +183,7 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
         request = ImageModelTestRequest(provider="gmi", model="seedream-5.0-pro", prompt="test render")
         with patch.dict(os.environ, {"VERCEL": "1", "VERCEL_ENV": "production"}, clear=True):
             with self.assertRaises(HTTPException) as raised:
-                test_image_model(request, HOSTED_CONTEXT)
+                run_image_model_test(request, HOSTED_CONTEXT)
 
         self.assertEqual(404, raised.exception.status_code)
 

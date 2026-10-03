@@ -67,7 +67,7 @@ def _job_matches_project(job: Dict[str, Any], project_id: str) -> bool:
 class JobRepository(Protocol):
     def initialize(self) -> None: ...
 
-    def create(self, record: Dict[str, Any]) -> None: ...
+    def create(self, record: Dict[str, Any], *, replace_existing: bool = True) -> None: ...
 
     def append_progress_event(self, job_id: str, event: Dict[str, Any], now: str) -> None: ...
 
@@ -103,8 +103,12 @@ class SupabaseJobRepository:
     def initialize(self) -> None:
         self._client.table("a2a_jobs").select(self._projection).limit(1).execute()
 
-    def create(self, record: Dict[str, Any]) -> None:
-        self._client.table("a2a_jobs").upsert(record, on_conflict="job_id").execute()
+    def create(self, record: Dict[str, Any], *, replace_existing: bool = True) -> None:
+        table = self._client.table("a2a_jobs")
+        if replace_existing:
+            table.upsert(record, on_conflict="job_id").execute()
+        else:
+            table.insert(record).execute()
 
     def append_progress_event(self, job_id: str, event: Dict[str, Any], now: str) -> None:
         current = self.get(job_id) or {}
@@ -249,7 +253,7 @@ class SQLiteJobRepository:
     def initialize(self) -> None:
         self._provider.initialize()
 
-    def create(self, record: Dict[str, Any]) -> None:
+    def create(self, record: Dict[str, Any], *, replace_existing: bool = True) -> None:
         values = dict(record)
         values["server_owned"] = 1 if values["server_owned"] else 0
         for column in (
@@ -264,9 +268,10 @@ class SQLiteJobRepository:
         columns = list(values)
         quoted_columns = ", ".join(columns)
         placeholders = ", ".join("?" for _ in columns)
+        insert_mode = "INSERT OR REPLACE" if replace_existing else "INSERT"
         with self._locked_connection() as connection:
             connection.execute(
-                f"INSERT OR REPLACE INTO a2a_jobs ({quoted_columns}) VALUES ({placeholders})",
+                f"{insert_mode} INTO a2a_jobs ({quoted_columns}) VALUES ({placeholders})",
                 tuple(values[column] for column in columns),
             )
 

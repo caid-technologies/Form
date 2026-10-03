@@ -7,7 +7,7 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `apps/api/a2a.py` – A2A broker, REST/WebSocket/TCP/MCP handlers
 - `forma_core/generation.py` – high-level generation API
 - `forma_core/agents/orchestrator.py` – multi-agent pipeline
-- `forma_core/models.py` – Pydantic Hardware IR schemas
+- `forma_core/models.py` – Pydantic Hardware Intermediate Representation schemas
 - `forma_core/validation.py` – rule-based electrical checks
 - `forma_core/llm_providers.py` – provider-agnostic structured LLM adapters
 - `forma_core/image_providers.py` – optional generated product image adapters
@@ -40,26 +40,28 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `GET /api/runtime/config` – canonical user-scoped generation contract used by the frontend (selected/configured LLMs, image behavior, workflow default, and provider-setup requirements)
 
 ## Orchestration layer
-The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `forma_core/agents/orchestrator.py`). Live agent calls go through `forma_core.llm`, which exposes a provider-agnostic structured JSON interface that maps directly to the Hardware IR. If no live provider is configured (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.
+The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `forma_core/agents/orchestrator.py`). Live agent calls go through `forma_core.llm`, which exposes a provider-agnostic structured JSON interface that maps directly to the Hardware Intermediate Representation. If no live provider is configured (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.
 
 ## Reusable core package
-Generation behavior is packaged under `forma_core` so the API server, CLI, smoke tests, workers, and future services all share one implementation. Use `forma_core.generation` for high-level generation, `forma_core.models` for Hardware IR schemas, `forma_core.validation` for electrical checks, `forma_core.llm` for provider resolution and structured generation, `forma_core.images` for image providers and visual prompt construction, `forma_core.runtime` for deployment gating, and `forma_core.selectors` for parsing `provider/model` selectors. The legacy backend core modules are compatibility wrappers.
+Generation behavior is packaged under `forma_core` so the API server, CLI, smoke tests, workers, and future services all share one implementation. Use `forma_core.generation` for high-level generation, `forma_core.models` for Hardware Intermediate Representation schemas, `forma_core.validation` for electrical checks, `forma_core.llm` for provider resolution and structured generation, `forma_core.images` for image providers and visual prompt construction, `forma_core.runtime` for deployment gating, and `forma_core.selectors` for parsing `provider/model` selectors. The legacy backend core modules are compatibility wrappers.
 
 ## A2A layer
-The A2A layer exposes Forma to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted. Job metadata uses the primary application database, so local jobs share `SQLITE_DATABASE_URL` with projects and hosted jobs share the Supabase schema. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`.
+The A2A layer exposes Forma to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted and authenticated in hosted mode. Job metadata uses the primary application database, so local jobs share `SQLITE_DATABASE_URL` with projects and hosted jobs share the Supabase schema. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`; it remains loopback/local-only without a service credential.
 
 LLM configuration behavior:
 
 - Runtime precedence is fixed in one backend resolver: explicit request override, saved integration, environment, then provider default. `/api/runtime/config` is the client authority; clients must not reconstruct readiness or defaults from environment variables or integration form fields.
 - `LOG_LEVEL`: backend logging level, for example `INFO` or `DEBUG`
-- `BACKEND_LOG_FILE`: optional log file for backend and uvicorn logs, for example `./forma-backend.log`. `./scripts/development/dev.sh` defaults this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
+- `BACKEND_LOG_FILE`: optional log file for backend and uvicorn logs, for example `./forma-backend.log`. The development launchers default this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
 - `FORMA_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
-- `FORMA_DEV_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
-- `FORMA_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings
+- `FORMA_DEVELOPMENT_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record. `FORMA_DEV_MODE` is a compatibility alias.
+- `FORMA_DEPLOYMENT_MODE`: `local` by default or `hosted`; invalid values fail startup. Hosted mode requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate` and cannot run with `FORMA_DEVELOPMENT_MODE=true`.
+- `FORMA_HOSTED_CHAT_ENABLED`: Reversible hosted-chat maintenance flag. It defaults to `true` locally and `false` in hosted mode. When disabled, hosted chat/generation mutations return `503` while chat/project reads, local CLI compilation, and CLI project uploads remain available.
+- `FORMA_AUTHORING_MODE_ENABLED`: Enables the Forma Agent authoring UI. In hosted Clerk mode, every signed-in Clerk or Forma CLI user can create projects through `/opencode/sessions`; no admin role or email allowlist is required. Anonymous callers and service identities cannot use user authoring endpoints, and projects/sessions remain scoped to their owner. `FORMA_OPENCODE_ALLOWED_EMAILS` is no longer used. Forma Agent authoring and its context/readiness routes remain available to signed-in users while the legacy hosted-chat pipeline is disabled.
 - `REDIS_URL`: Redis connection URL for cached `/projects` and `/my/projects` responses. In production, set it or the complete Upstash REST pair below, plus `REDIS_CACHE_PREFIX`; runtime cache failures still fall back to the database.
 - `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`: server-only Upstash REST credentials that can replace `REDIS_URL`, which avoids persistent Redis socket requirements on serverless deployments.
 - `PROJECTS_CACHE_TTL_SECONDS`: project-list cache lifetime in seconds, default `60`; successful project writes invalidate all list variants immediately.
-- `REDIS_CACHE_PREFIX`: Redis key namespace, required when `FORMA_DEV_MODE=false` and defaulting to `forma` only for development-mode cache usage.
+- `REDIS_CACHE_PREFIX`: Redis key namespace, required when `FORMA_DEVELOPMENT_MODE=false` and defaulting to `forma` only for development-mode cache usage.
 - `REDIS_SOCKET_TIMEOUT_SECONDS`: Redis connect/read timeout, default `0.25`; failures open a 30-second local circuit breaker.
 - `LLM_PROVIDER`: `vertex`, `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_MODEL`: provider model ID
@@ -91,7 +93,7 @@ LLM configuration behavior:
 - `HUGGINGFACE_IMAGE_MODEL_REVISION` / `HUGGINGFACE_IMAGE_MODEL_LICENSE`: optional policy metadata recorded with stored Hugging Face image outputs
 - `SUPABASE_S3_ENDPOINT`: explicit endpoint required for direct S3-compatible image uploads; Supabase-client uploads derive their endpoint from `SUPABASE_URL`
 - `SUPABASE_S3_BUCKET`: Supabase Storage bucket for reference and generated product images, defaulting to `contents`
-- `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: optional S3-compatible fallback credentials. The normal backend path writes through the Supabase client using `SUPABASE_URL` plus the service-role/secret key; `FORMA_DEV_MODE=true` disables these image uploads
+- `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: optional S3-compatible fallback credentials. The normal backend path writes through the Supabase client using `SUPABASE_URL` plus the service-role/secret key; `FORMA_DEVELOPMENT_MODE=true` disables these image uploads
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS`: lifetime for refreshed Supabase Storage read URLs when projects are loaded, defaulting to `86400`
 - `SUPABASE_STORAGE_PUBLIC_BASE_URL`: optional public object URL base; defaults from `SUPABASE_URL` or the S3 endpoint
 - `LLM_FALLBACK_MODEL`: optional fallback model
@@ -130,7 +132,8 @@ Validation is run after the netlist step. Critical issues trigger a repair loop 
 
 ## Startup behavior
 On startup the server:
-- Initializes the DB schema
+- Validates hosted persistence configuration and refuses an implicit SQLite fallback
+- Initializes the selected DB schema
 - Auto-seeds component templates if the catalog is empty
 
 ## Running locally
@@ -144,6 +147,36 @@ To make backend logs visible in the local frontend LOGS tab when running uvicorn
 
 ```bash
 BACKEND_LOG_FILE=.logs/backend-dev.log uvicorn apps.api.main:app --reload --port 8000
+```
+
+## Local FormaWorker
+
+The OpenCode execution worker runs as a restricted Windows service named
+`FormaBackend` and binds only to `127.0.0.1:8000`. It is not the browser API
+origin and must not be published through Cloudflare Tunnel. Cloud Forma remains
+authoritative for browser traffic, accepted projects, revisions, and display.
+
+Use `FORMA_DEPLOYMENT_MODE=local` for the worker and keep local execution state
+separate from cloud production persistence. The worker uses local execution mode
+for authoring, compilation, validation, and
+resume state, then sends accepted snapshots outbound through the authenticated
+CLI delivery flow. Host service provisioning, account creation, ACLs, and worker
+environment values belong to `caid-technologies/local-server-config`; keep
+passwords, service tokens, and provider keys out of this repository.
+
+Validate the cloud environment without printing secrets:
+
+```bash
+python scripts/operations/verify-production-env.py --environment production --require-live-clerk
+```
+
+Then verify local authoring and explicit delivery:
+
+```bash
+forma-oss init ./my-project
+forma-oss build "a low-voltage plant monitor" --path ./my-project
+forma-oss login
+forma-oss projects deliver --path ./my-project --yes --json
 ```
 
 Run generation directly through the sole Forma Core CLI with `--llm provider/model`:

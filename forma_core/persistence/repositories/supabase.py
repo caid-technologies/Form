@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from collections import Counter
+import logging
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
+
+from forma_core.workspaces.projects.manifest import build_canonical_revision_record
+
+logger = logging.getLogger(__name__)
 
 
 def _record(row: Dict[str, Any]) -> SimpleNamespace:
@@ -49,18 +54,108 @@ class SupabaseRepository:
     def insert_component_template(self, record: Dict[str, Any]) -> None:
         self._client.table("component_templates").insert(record).execute()
 
+    def upsert_project_identity(self, record: Dict[str, Any]) -> Any:
+        rows = self._client.table("projects").upsert(record, on_conflict="project_id").execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def get_project_identity(self, project_id: str) -> Optional[Any]:
+        rows = self._client.table("projects").select("*").eq("project_id", project_id).limit(1).execute().data or []
+        # Project identity callers use mapping access, matching the SQLite repository.
+        return rows[0] if rows else None
+
+    def list_project_identities(self, owner_user_id: str) -> List[Any]:
+        rows = (
+            self._client.table("projects")
+            .select("*")
+            .eq("owner_user_id", owner_user_id)
+            .eq("status", "active")
+            .order("updated_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+        return [_record(row) for row in rows]
+
+    def list_project_gallery_inventory_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+        search: Optional[str] = None,
+    ) -> tuple[List[Any], int]:
+        """Read one bounded page from the canonical gallery inventory view."""
+        query = self._client.table("project_gallery_inventory").select(
+            "project_id,owner_user_id,creation_channel,title,prompt,chat_id,workspace_id,visibility,status,"
+            "created_at,updated_at,source,revision_id,revision,revision_payload_json,revision_created_at,"
+            "legacy_hardware_ir,legacy_id",
+            count="exact",
+        ).eq("status", "active")
+        if owner_user_id:
+            query = query.eq("owner_user_id", owner_user_id)
+        if visibility:
+            query = query.eq("visibility", visibility)
+        if search:
+            pattern = _postgrest_ilike_pattern(search)
+            query = query.or_(f"title.ilike.{pattern},prompt.ilike.{pattern}")
+        response = (
+            query.order("updated_at", desc=True)
+            .order("project_id", desc=True)
+            .range(max(0, int(offset)), max(0, int(offset)) + max(1, int(limit)) - 1)
+            .execute()
+        )
+        rows = response.data or []
+        response_count = getattr(response, "count", None)
+        total = response_count if isinstance(response_count, int) else len(rows)
+        return [_record(row) for row in rows], total
+
+    def list_project_gallery_inventory(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        search: Optional[str] = None,
+    ) -> List[Any]:
+        query = self._client.table("project_gallery_inventory").select(
+            "project_id,owner_user_id,creation_channel,title,prompt,chat_id,workspace_id,visibility,status,"
+            "created_at,updated_at,source,revision_id,revision,revision_payload_json,revision_created_at,"
+            "legacy_hardware_ir,legacy_id"
+        ).eq("status", "active")
+        if owner_user_id:
+            query = query.eq("owner_user_id", owner_user_id)
+        if visibility:
+            query = query.eq("visibility", visibility)
+        if search:
+            pattern = _postgrest_ilike_pattern(search)
+            query = query.or_(f"title.ilike.{pattern},prompt.ilike.{pattern}")
+        rows = query.order("updated_at", desc=True).order("project_id", desc=True).execute().data or []
+        return [_record(row) for row in rows]
+
     def save_generated_project(
         self,
         record: Dict[str, Any],
         chat_record: Optional[Dict[str, Any]],
     ) -> None:
         self._client.table("generated_projects").insert(record).execute()
+        self._client.table("projects").upsert({
+            "project_id": record["project_id"],
+            "owner_user_id": record.get("owner_user_id"),
+            "creation_channel": record.get("creation_channel", "hosted"),
+            "title": record.get("title", ""),
+            "prompt": record.get("prompt", ""),
+            "chat_id": record.get("chat_id"),
+            "visibility": record.get("visibility", "public"),
+            "status": record.get("status", "active"),
+            "created_at": record["created_at"],
+            "updated_at": record["created_at"],
+        }, on_conflict="project_id").execute()
         if chat_record:
             self.upsert_project_chat(chat_record)
 
     def list_generated_projects(self, owner_user_id: Optional[str]) -> List[Any]:
         query = self._client.table("generated_projects").select(
-            "id,project_id,chat_id,title,prompt,created_at,owner_user_id,visibility,hardware_ir,status,"
+            "id,project_id,chat_id,title,prompt,created_at,owner_user_id,creation_channel,visibility,hardware_ir,status,"
             "deleted_at,deletion_requested_by,purge_after,purge_started_at,purge_completed_at,deletion_error"
         ).eq("status", "active")
         if owner_user_id:
@@ -78,7 +173,7 @@ class SupabaseRepository:
         search: Optional[str] = None,
     ) -> tuple[List[Any], int]:
         query = self._client.table("generated_projects").select(
-            "id,project_id,chat_id,title,prompt,created_at,owner_user_id,visibility,hardware_ir,status,"
+            "id,project_id,chat_id,title,prompt,created_at,owner_user_id,creation_channel,visibility,hardware_ir,status,"
             "deleted_at,deletion_requested_by,purge_after,purge_started_at,purge_completed_at,deletion_error",
             count="exact",
         ).eq("status", "active")
@@ -330,6 +425,20 @@ class SupabaseRepository:
         )
         return _record(rows[0]) if rows else None
 
+    def list_project_revisions(self, project_id: str, owner_user_id: str, *, limit: int, before: int | None = None) -> List[Any]:
+        query = (self._client.table("project_revisions").select("*")
+                 .eq("project_id", project_id).eq("owner_user_id", owner_user_id))
+        if before is not None:
+            query = query.lt("revision", before)
+        rows = query.order("revision", desc=True).limit(limit).execute().data or []
+        return [_record(row) for row in rows]
+
+    def get_project_revision_by_id(self, project_id: str, owner_user_id: str, revision_id: str) -> Optional[Any]:
+        rows = (self._client.table("project_revisions").select("*")
+                .eq("project_id", project_id).eq("owner_user_id", owner_user_id)
+                .eq("id", revision_id).limit(1).execute().data or [])
+        return _record(rows[0]) if rows else None
+
     def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]:
         rows = (
             self._client.table("project_revisions")
@@ -398,6 +507,357 @@ class SupabaseRepository:
         payload = data[0] if isinstance(data, list) and data else data
         return _record(payload) if isinstance(payload, dict) else None
 
+    def get_cli_project(self, project_id: str, owner_user_id: str) -> Optional[Any]:
+        rows = (
+            self._client.table("cli_projects")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def list_cli_projects(self, owner_user_id: str) -> List[Any]:
+        rows = (
+            self._client.table("cli_projects")
+            .select("*")
+            .eq("owner_user_id", owner_user_id)
+            .order("updated_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+        return [_record(row) for row in rows]
+
+    def get_cli_project_revision(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        revision_id: Optional[str] = None,
+    ) -> Optional[Any]:
+        query = (
+            self._client.table("cli_project_revisions")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+        )
+        if revision_id:
+            query = query.eq("revision_id", revision_id)
+        rows = query.order("revision", desc=True).limit(1).execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def insert_cli_project_revision(
+        self,
+        project_record: Dict[str, Any],
+        revision_record: Dict[str, Any],
+        expected_revision_id: Optional[str],
+    ) -> Optional[Any]:
+        identity = self.get_project_identity(project_record["project_id"])
+        if identity is not None and getattr(identity, "status", "active") != "active":
+            logger.warning(
+                "cli_project_push_rejected_lifecycle project_id=%s status=%s",
+                project_record["project_id"],
+                getattr(identity, "status", None),
+            )
+            return None
+        project = self.get_cli_project(project_record["project_id"], project_record["owner_user_id"])
+        latest = self.get_cli_project_revision(project_record["project_id"], project_record["owner_user_id"])
+        if (
+            latest is not None
+            and getattr(latest, "revision", None) == revision_record["revision"]
+            and getattr(latest, "parent_revision_id", None) == expected_revision_id
+            and getattr(latest, "manifest_json", None) == revision_record.get("manifest_json")
+        ):
+            try:
+                logger.info("cli_project_push_recovered project_id=%s revision_id=%s", project_record["project_id"], latest.revision_id)
+                self._ensure_canonical_cli_revision(
+                    project_record,
+                    {
+                        "revision_id": latest.revision_id,
+                        "revision": latest.revision,
+                        "manifest_json": latest.manifest_json,
+                        "created_at": latest.created_at,
+                    },
+                )
+                self._client.table("projects").upsert({
+                    "project_id": project_record["project_id"],
+                    "owner_user_id": project_record["owner_user_id"],
+                    "creation_channel": "cli",
+                    "title": project_record["title"],
+                    "prompt": str((revision_record.get("manifest_json") or {}).get("prompt") or ""),
+                    "workspace_id": project_record.get("workspace_id"),
+                    "visibility": project_record.get("visibility", "public"),
+                    "status": "active",
+                    "current_revision": latest.revision,
+                    "current_revision_id": latest.revision_id,
+                    "created_at": project_record["created_at"],
+                    "updated_at": latest.created_at,
+                }, on_conflict="project_id").execute()
+                project_updates = {
+                    "workspace_id": project_record["workspace_id"],
+                    "title": project_record["title"],
+                    "current_revision": latest.revision,
+                    "current_revision_id": latest.revision_id,
+                    "updated_at": latest.created_at,
+                }
+                if project is None:
+                    self._client.table("cli_projects").insert({
+                        **project_record,
+                        **project_updates,
+                    }).execute()
+                else:
+                    self._client.table("cli_projects").update(project_updates).eq(
+                        "project_id", project_record["project_id"]
+                    ).eq("owner_user_id", project_record["owner_user_id"]).execute()
+            except Exception:
+                logger.exception("cli_project_push_recovery_failed project_id=%s revision_id=%s", project_record["project_id"], latest.revision_id)
+                return None
+            return latest
+        if project is None:
+            if expected_revision_id is not None:
+                return None
+            try:
+                self._client.table("cli_projects").insert(project_record).execute()
+            except Exception:
+                logger.exception("cli_project_push_compatibility_create_failed project_id=%s", project_record["project_id"])
+                return None
+        elif (
+            getattr(project, "current_revision_id", None) != expected_revision_id
+            or int(getattr(project, "current_revision", 0)) + 1 != revision_record["revision"]
+        ):
+            return None
+        try:
+            rows = self._client.table("cli_project_revisions").insert(revision_record).execute().data or []
+            self._ensure_canonical_cli_revision(project_record, revision_record)
+            self._client.table("projects").upsert({
+                "project_id": project_record["project_id"],
+                "owner_user_id": project_record["owner_user_id"],
+                "creation_channel": "cli",
+                "title": project_record["title"],
+                "prompt": str((revision_record.get("manifest_json") or {}).get("prompt") or ""),
+                "workspace_id": project_record.get("workspace_id"),
+                "visibility": project_record.get("visibility", "public"),
+                "status": "active",
+                "current_revision": revision_record["revision"],
+                "current_revision_id": revision_record["revision_id"],
+                "created_at": project_record["created_at"],
+                "updated_at": revision_record["created_at"],
+            }, on_conflict="project_id").execute()
+            self._client.table("cli_projects").update({
+                "workspace_id": project_record["workspace_id"],
+                "title": project_record["title"],
+                "current_revision": revision_record["revision"],
+                "current_revision_id": revision_record["revision_id"],
+                "updated_at": revision_record["created_at"],
+            }).eq("project_id", project_record["project_id"]).eq(
+                "owner_user_id", project_record["owner_user_id"]
+            ).execute()
+        except Exception:
+            logger.exception("cli_project_push_partial_write project_id=%s revision_id=%s", project_record["project_id"], revision_record["revision_id"])
+            return None
+        return _record(rows[0]) if rows else None
+
+    def get_cli_project_delivery(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        idempotency_key: str,
+    ) -> Optional[Any]:
+        rows = (
+            self._client.table("cli_project_deliveries")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .eq("idempotency_key", idempotency_key)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def get_cli_project_delivery_by_id(self, delivery_id: str) -> Optional[Any]:
+        rows = (
+            self._client.table("cli_project_deliveries")
+            .select("*")
+            .eq("delivery_id", delivery_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def list_cli_project_deliveries(self, owner_user_id: str) -> List[Any]:
+        rows = (
+            self._client.table("cli_project_deliveries")
+            .select("*")
+            .eq("owner_user_id", owner_user_id)
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+        return [_record(row) for row in rows]
+
+    def insert_cli_project_delivery(self, record: Dict[str, Any]) -> Any:
+        try:
+            rows = self._client.table("cli_project_deliveries").insert(record).execute().data or []
+        except Exception:
+            existing = self.get_cli_project_delivery(
+                record["project_id"],
+                record["owner_user_id"],
+                record["idempotency_key"],
+            )
+            if existing is None:
+                raise
+            return existing
+        return _record(rows[0]) if rows else _record(record)
+
+    def update_cli_project_delivery(
+        self,
+        delivery_id: str,
+        owner_user_id: str,
+        updates: Dict[str, Any],
+    ) -> Optional[Any]:
+        rows = (
+            self._client.table("cli_project_deliveries")
+            .update(updates)
+            .eq("delivery_id", delivery_id)
+            .eq("owner_user_id", owner_user_id)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def update_cli_project_visibility(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        visibility: str,
+    ) -> Optional[Any]:
+        rows = (
+            self._client.table("cli_projects")
+            .update({"visibility": visibility})
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def record_project_publish_audit(self, record: Dict[str, Any]) -> None:
+        self._client.table("project_publish_audit").insert(record).execute()
+
+    def list_project_publish_audits(self, project_id: str, owner_user_id: str) -> List[Any]:
+        rows = (
+            self._client.table("project_publish_audit")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+        return [_record(row) for row in rows]
+
+    def _ensure_canonical_cli_revision(
+        self,
+        project_record: Dict[str, Any],
+        revision_record: Dict[str, Any],
+    ) -> None:
+        canonical = build_canonical_revision_record(project_record, revision_record)
+        if canonical is None:
+            logger.info(
+                "cli_project_canonical_revision_skipped project_id=%s reason=legacy_identifier_or_invalid_ir",
+                project_record["project_id"],
+            )
+            return
+        existing = (
+            self._client.table("project_revisions")
+            .select("id")
+            .eq("project_id", canonical["project_id"])
+            .eq("revision", canonical["revision"])
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not existing:
+            self._client.table("project_revisions").insert(canonical).execute()
+
+    def get_cli_device_authorization(self, device_code_hash: Optional[str] = None, user_code_hash: Optional[str] = None) -> Optional[Any]:
+        query = self._client.table("cli_device_authorizations").select("*")
+        if device_code_hash:
+            query = query.eq("device_code_hash", device_code_hash)
+        if user_code_hash:
+            query = query.eq("user_code_hash", user_code_hash)
+        rows = query.limit(1).execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def insert_cli_device_authorization(self, record: Dict[str, Any]) -> Any:
+        rows = self._client.table("cli_device_authorizations").insert(record).execute().data or []
+        return _record(rows[0]) if rows else _record(record)
+
+    def update_cli_device_authorization(
+        self,
+        device_code_hash: str,
+        updates: Dict[str, Any],
+        expected_status: Optional[str] = None,
+        expected_consumed: Optional[bool] = None,
+    ) -> Optional[Any]:
+        query = self._client.table("cli_device_authorizations").update(updates).eq(
+            "device_code_hash", device_code_hash
+        )
+        if expected_status is not None:
+            query = query.eq("status", expected_status)
+        if expected_consumed is not None:
+            query = query.eq("consumed", expected_consumed)
+        rows = query.select("*").execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def get_cli_token_session(self, token_hash: str) -> Optional[Any]:
+        rows = self._client.table("cli_token_sessions").select("*").eq("token_hash", token_hash).limit(1).execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def insert_cli_token_session(self, record: Dict[str, Any]) -> Any:
+        rows = self._client.table("cli_token_sessions").insert(record).execute().data or []
+        return _record(rows[0]) if rows else _record(record)
+
+    def revoke_cli_token_sessions(
+        self,
+        *,
+        token_hash: Optional[str] = None,
+        refresh_token_hash: Optional[str] = None,
+        revoked_at: float,
+    ) -> int:
+        count = 0
+        seen: set[str] = set()
+        for column, value in (("token_hash", token_hash), ("refresh_token_hash", refresh_token_hash)):
+            if not value:
+                continue
+            rows = (
+                self._client.table("cli_token_sessions")
+                .update({"revoked_at": revoked_at})
+                .eq(column, value)
+                .is_("revoked_at", "null")
+                .execute()
+                .data
+                or []
+            )
+            for row in rows:
+                token_hash_value = str(row.get("token_hash") or "")
+                if token_hash_value and token_hash_value not in seen:
+                    seen.add(token_hash_value)
+                    count += 1
+        return count
+
     def insert_project_revision(
         self,
         record: Dict[str, Any],
@@ -455,7 +915,23 @@ class SupabaseRepository:
         return _record(payload) if isinstance(payload, dict) else None
 
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
-        rows = (
+        canonical_rows = (
+            self._client.table("projects")
+            .select("*")
+            .in_("status", ["deletion_pending", "deletion_failed", "purging"])
+            .lte("purge_after", before)
+            .order("purge_after")
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+        canonical = [_record(row) for row in canonical_rows]
+        remaining = max(0, limit - len(canonical))
+        if not remaining:
+            return canonical
+        canonical_ids = {str(project.project_id) for project in canonical}
+        legacy_rows = (
             self._client.table("generated_projects")
             .select("*")
             .in_("status", ["deletion_pending", "deletion_failed", "purging"])
@@ -466,7 +942,7 @@ class SupabaseRepository:
             .data
             or []
         )
-        return [_record(row) for row in rows]
+        return [*canonical, *[_record(row) for row in legacy_rows if str(row.get("project_id")) not in canonical_ids][:remaining]]
 
     def update_project_deletion_state(
         self,
@@ -476,6 +952,36 @@ class SupabaseRepository:
         updates: Dict[str, Any],
         expected_purge_started_at: Optional[str] = None,
     ) -> Optional[Any]:
+        identity = self.get_project_identity(project_id)
+        if identity is not None:
+            identity_owner = getattr(identity, "owner_user_id", None) if not isinstance(identity, dict) else identity.get("owner_user_id")
+            identity_status = getattr(identity, "status", "active") if not isinstance(identity, dict) else identity.get("status", "active")
+            identity_purge_started_at = getattr(identity, "purge_started_at", None) if not isinstance(identity, dict) else identity.get("purge_started_at")
+            if owner_user_id and identity_owner != owner_user_id:
+                return None
+            if identity_status not in allowed_statuses:
+                return None
+            if expected_purge_started_at is not None and identity_purge_started_at != expected_purge_started_at:
+                return None
+            updated_identity = (
+                self._client.table("projects")
+                .update(updates)
+                .eq("project_id", project_id)
+                .in_("status", allowed_statuses)
+            )
+            if owner_user_id:
+                updated_identity = updated_identity.eq("owner_user_id", owner_user_id)
+            if expected_purge_started_at is not None:
+                updated_identity = updated_identity.eq("purge_started_at", expected_purge_started_at)
+            rows = updated_identity.execute().data or []
+            if not rows:
+                return None
+            projection_query = self._client.table("generated_projects").update(updates).eq("project_id", project_id)
+            if owner_user_id:
+                projection_query = projection_query.eq("owner_user_id", owner_user_id)
+            projection_query.execute()
+            return _record(rows[0])
+
         query = (
             self._client.table("generated_projects")
             .update(updates)
@@ -490,31 +996,50 @@ class SupabaseRepository:
         return _record(rows[0]) if rows else None
 
     def hard_purge_project(self, project_id: str, owner_user_id: Optional[str]) -> bool:
+        identity = self.get_project_identity(project_id)
         project = self.get_generated_project(project_id, include_deleted=True)
-        if not project or (owner_user_id and project.owner_user_id != owner_user_id):
+        cli_project = self.get_cli_project(project_id, owner_user_id) if owner_user_id else None
+        identity_owner = getattr(identity, "owner_user_id", None) if identity is not None else None
+        if owner_user_id and identity_owner and identity_owner != owner_user_id:
+            return False
+        if owner_user_id and project and project.owner_user_id not in (None, owner_user_id):
+            return False
+        if not identity and not project and not cli_project:
             return False
         query = self._client.table("generated_projects").delete().eq("project_id", project_id)
         if owner_user_id:
             query = query.eq("owner_user_id", owner_user_id)
-        deleted = bool(query.execute().data)
-        if deleted:
-            self._client.table("project_validation_reports").delete().eq("project_id", project_id).execute()
-            self._client.table("project_revisions").delete().eq("project_id", project_id).execute()
-            self._client.table("worker_execution_plans").delete().eq("project_id", project_id).execute()
-            self._client.table("project_builds").delete().eq("project_id", project_id).execute()
-            self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
-            self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()
-            self._client.table("project_workflows").delete().eq("project_id", project_id).execute()
-            self._client.table("project_saves").delete().eq("project_id", project_id).execute()
+        deleted = bool(query.execute().data) if project else False
+        if cli_project:
+            self._client.table("cli_project_revisions").delete().eq("project_id", project_id).execute()
+            self._client.table("cli_projects").delete().eq("project_id", project_id).execute()
+        if identity or deleted:
+            for table in (
+                "project_validation_reports",
+                "project_revisions",
+                "worker_execution_plans",
+                "project_builds",
+                "design_briefs",
+                "project_workflow_transitions",
+                "project_workflows",
+                "project_saves",
+            ):
+                self._client.table(table).delete().eq("project_id", project_id).execute()
             self._client.table("project_remixes").delete().eq("remix_project_id", project_id).execute()
             self._client.table("project_remixes").delete().eq("source_project_id", project_id).execute()
-        if not deleted or not getattr(project, "chat_id", None) or not getattr(project, "owner_user_id", None):
-            return deleted
+            identity_query = self._client.table("projects").delete().eq("project_id", project_id)
+            if owner_user_id:
+                identity_query = identity_query.eq("owner_user_id", owner_user_id)
+            identity_query.execute()
+        chat_id = getattr(project, "chat_id", None) or (getattr(identity, "chat_id", None) if identity else None)
+        project_owner = getattr(project, "owner_user_id", None) or identity_owner
+        if not chat_id or not project_owner:
+            return bool(identity or deleted or cli_project)
         remaining = (
             self._client.table("generated_projects")
             .select("project_id")
-            .eq("chat_id", project.chat_id)
-            .eq("owner_user_id", project.owner_user_id)
+            .eq("chat_id", chat_id)
+            .eq("owner_user_id", project_owner)
             .limit(1)
             .execute()
             .data
@@ -524,12 +1049,12 @@ class SupabaseRepository:
             (
                 self._client.table("project_chats")
                 .delete()
-                .eq("chat_id", project.chat_id)
-                .eq("owner_user_id", project.owner_user_id)
+                .eq("chat_id", chat_id)
+                .eq("owner_user_id", project_owner)
                 .execute()
             )
         else:
-            chat = self.get_project_chat(project.chat_id, project.owner_user_id)
+            chat = self.get_project_chat(chat_id, project_owner)
             if chat and isinstance(getattr(chat, "messages", None), list):
                 messages = [
                     message
@@ -539,11 +1064,11 @@ class SupabaseRepository:
                 (
                     self._client.table("project_chats")
                     .update({"messages": messages})
-                    .eq("chat_id", project.chat_id)
-                    .eq("owner_user_id", project.owner_user_id)
+                    .eq("chat_id", chat_id)
+                    .eq("owner_user_id", project_owner)
                     .execute()
                 )
-        return True
+        return bool(identity or deleted or cli_project)
 
     def update_generated_project_hardware_ir(
         self,
@@ -558,6 +1083,27 @@ class SupabaseRepository:
         if owner_user_id:
             query = query.eq("owner_user_id", owner_user_id)
         return bool(query.execute().data)
+
+    def claim_unowned_generated_project(
+        self,
+        project_id: str,
+        hardware_ir: Dict[str, Any],
+        chat_id: Optional[str],
+        owner_user_id: str,
+    ) -> bool:
+        response = (
+            self._client.table("generated_projects")
+            .update({
+                "hardware_ir": hardware_ir,
+                "chat_id": chat_id,
+                "owner_user_id": owner_user_id,
+            })
+            .eq("project_id", project_id)
+            .eq("status", "active")
+            .is_("owner_user_id", "null")
+            .execute()
+        )
+        return bool(response.data)
 
     def update_generated_project_metadata(
         self,
@@ -814,13 +1360,24 @@ class SupabaseRepository:
             .data
             or []
         )
-        by_chat: Dict[str, List[Dict[str, Any]]] = {}
+        canonical_projects = (
+            self._client.table("projects")
+            .select("project_id,chat_id,status")
+            .eq("owner_user_id", owner_user_id)
+            .execute()
+            .data
+            or []
+        )
+        by_chat: Dict[str, Dict[str, Dict[str, Any]]] = {}
         for project in projects:
             if project.get("chat_id"):
-                by_chat.setdefault(str(project["chat_id"]), []).append(project)
+                by_chat.setdefault(str(project["chat_id"]), {})[str(project["project_id"])] = project
+        for project in canonical_projects:
+            if project.get("chat_id"):
+                by_chat.setdefault(str(project["chat_id"]), {})[str(project["project_id"])] = project
         visible = []
         for row in rows:
-            linked = by_chat.get(str(row.get("chat_id") or ""), [])
+            linked = list(by_chat.get(str(row.get("chat_id") or ""), {}).values())
             if linked and not any(project.get("status") == "active" for project in linked):
                 continue
             hidden_ids = {str(project["project_id"]) for project in linked if project.get("status") != "active"}
@@ -856,6 +1413,18 @@ class SupabaseRepository:
             .data
             or []
         )
+        canonical_projects = (
+            self._client.table("projects")
+            .select("project_id,status")
+            .eq("chat_id", chat_id)
+            .eq("owner_user_id", owner_user_id)
+            .execute()
+            .data
+            or []
+        )
+        linked_by_id = {str(project["project_id"]): project for project in projects}
+        linked_by_id.update({str(project["project_id"]): project for project in canonical_projects})
+        projects = list(linked_by_id.values())
         if projects and not any(project.get("status") == "active" for project in projects):
             return None
         hidden_ids = {str(project["project_id"]) for project in projects if project.get("status") != "active"}
@@ -879,6 +1448,13 @@ class SupabaseRepository:
         if response.data:
             (
                 self._client.table("generated_projects")
+                .update({"chat_id": None})
+                .eq("chat_id", chat_id)
+                .eq("owner_user_id", owner_user_id)
+                .execute()
+            )
+            (
+                self._client.table("projects")
                 .update({"chat_id": None})
                 .eq("chat_id", chat_id)
                 .eq("owner_user_id", owner_user_id)

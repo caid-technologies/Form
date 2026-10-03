@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "forma-cloud": {
+      "url": "${env:FORMA_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${env:FORMA_AUTH_TOKEN}"
+      }
+    }
+  }
+}

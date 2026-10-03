@@ -43,7 +43,7 @@ config.update(
     }
 )
 
-from forma_core.workers.generation import HardwareIRGenerationEngine  # noqa: E402
+from forma_core.workers.generation import HardwareIntermediateRepresentationGenerationEngine  # noqa: E402
 from forma_core.workspaces.design_briefs import (  # noqa: E402
     DESIGN_BRIEF_SCHEMA_VERSION,
     DesignBrief,
@@ -83,7 +83,7 @@ def generate_project() -> FormaProjectObject:
         created_at=datetime.now(timezone.utc),
     )
 
-    engine = HardwareIRGenerationEngine(
+    engine = HardwareIntermediateRepresentationGenerationEngine(
         provider_name="openai-compatible",
         model_name=OLLAMA_MODEL,
         use_simulation=False,

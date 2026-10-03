@@ -109,10 +109,33 @@ def validate_circuit(
     prompt: str = "",
 ) -> List[ValidationIssue]:
     """
-    Runs automated electrical and logical validation checks on the structured Hardware IR netlist.
+    Runs automated electrical and logical validation checks on the structured Hardware Intermediate Representation netlist.
     Returns a list of ValidationIssues (Errors and Warnings) with troubleshooting advice.
     """
     issues: List[ValidationIssue] = validate_requirement_coverage(requirements, components, prompt=prompt)
+
+    # Mechanical BOM items have no electrical terminals. Unknown categories are
+    # not an exemption: an unmodelled module cannot be electrically verified.
+    mechanical_categories = {"mechanical", "enclosure", "fastener", "fasteners", "structural", "3d print"}
+    electrical_components = [
+        comp for comp in components
+        if comp.pins or comp.category.strip().lower() not in mechanical_categories
+    ]
+    for comp in electrical_components:
+        if not comp.pins:
+            issues.append(ValidationIssue(
+                severity="CRITICAL",
+                category="Missing Pin Definitions",
+                description=f"Component '{comp.name}' ({comp.ref_des}) has no declared electrical pins and cannot be validated.",
+                troubleshooting="Declare the part's physical terminals, including module power and interface connections. Use a mechanical category only for non-electrical parts.",
+            ))
+    if electrical_components and not nets:
+        issues.append(ValidationIssue(
+            severity="CRITICAL",
+            category="Missing Electrical Nets",
+            description="The project contains electrical components but no electrical netlist.",
+            troubleshooting="Define the actual power, ground, and signal connections. Power-rail descriptions and assembly instructions do not replace a netlist.",
+        ))
     
     # Pre-index component pin attributes for fast lookup
     # key: (ref_des, pin_id) -> PinDefinition

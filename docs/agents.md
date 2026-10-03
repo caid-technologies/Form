@@ -1,6 +1,6 @@
 # Agents
 
-Forma uses an **ADK-style** multi-agent workflow implemented in `forma_core/agents`. Each agent writes structured artifacts into the Hardware IR.
+Forma uses an **ADK-style** multi-agent workflow implemented in `forma_core/agents`. Each agent writes structured artifacts into the Hardware Intermediate Representation.
 
 ## Pipeline overview
 0. Context clarification → 1. Safety guardrails → 2. Intent Parser → 3. Requirements → 4. System Architecture → 5. Component Selection → 6. Wiring/Netlist (+ repair loop) → 7. BOM → 8. Mechanical/Fabrication → 9. Assembly Instructions → 10. Mechanical render enrichment
@@ -17,7 +17,7 @@ Forma uses an **ADK-style** multi-agent workflow implemented in `forma_core/agen
 
 ### Safety Guardrail (pre-check)
 **Input:** Prompt
-**Output:** Either a normal pipeline run, or a safety-blocked Hardware IR
+**Output:** Either a normal pipeline run, or a safety-blocked Hardware Intermediate Representation
 **Goal:** Block high-risk categories early (weapons, medical, mains AC, automotive control, high-power battery packs).
 
 ### Intent Parser Agent
@@ -61,7 +61,7 @@ If validation produces CRITICAL issues, the orchestrator runs a one-step **auto-
 **Output:** `MechanicalNotes`  
 **Goal:** Preserve the requested physical form and suggest appropriate housing or open-frame structure, mounting, and fabrication details.
 
-The agent may also emit `render_dimensions`, `component_placements`, and `spatial_relationships` for the 3D viewer.
+The agent may also emit `render_dimensions`, `component_placements`, `spatial_relationships`, and an optional `cad_model` source for the OpenCAD project tab. `cad_model` should identify one canonical model, not a directory or a collection of STEP files.
 
 ### Assembly Instruction Agent
 **Input:** System tree + pin-free component/net summaries + mechanical notes
@@ -80,7 +80,7 @@ flowchart LR
   F --> G[Validation + repair loop]
   G --> H[MechanicalNotes]
   H --> I[AssemblyStep[]]
-  I --> J[Hardware IR]
+  I --> J[Hardware Intermediate Representation]
 ```
 
 ## Notes
@@ -93,3 +93,4 @@ flowchart LR
 - Prompt context is projected by ownership: only wiring and electrical validation receive physical pins; architecture, mechanical, and assembly agents receive compact system-level views.
 - Dependency-aware concurrent execution and restart recovery are documented in `docs/worker-orchestration.md`.
 - Frozen-brief generation and canonical revision persistence are documented in `docs/generation-worker.md`.
+- Domain-scoped context sharing, field allowlists, and handoff receipts are documented in `docs/context-governance.md`.

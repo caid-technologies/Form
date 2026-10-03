@@ -1,0 +1,263 @@
+{
+  "hardware_ir_version": "0.2",
+  "overview": {
+    "title": "Monolithic Flexure Hinge",
+    "description": "Single-solid compliant hinge benchmark with two rigid regions connected by a thin flexure web.",
+    "difficulty": "Advanced",
+    "estimated_cost": 0,
+    "category": "Mechanical"
+  },
+  "requirements": {
+    "requirements": [
+      "Remain one connected solid",
+      "Bend through a thin flexure web",
+      "Show only an approximate motion preview"
+    ],
+    "power_needs": "None",
+    "operating_voltage": 0,
+    "physical_constraints": [
+      "0.8 mm flexure thickness",
+      "22 degree nominal preview travel"
+    ],
+    "safety_notes": [
+      "Preview does not validate strain, stress, fatigue life, or print anisotropy."
+    ],
+    "missing_info": []
+  },
+  "components": [
+    {
+      "ref_des": "FLEX_FIXED",
+      "part_number": "FLEX-FIXED",
+      "name": "Fixed rigid region",
+      "category": "Mechanical",
+      "rationale": "Stationary region of the monolithic compliant benchmark."
+    },
+    {
+      "ref_des": "FLEX_MOVING",
+      "part_number": "FLEX-MOVING",
+      "name": "Moving rigid region",
+      "category": "Mechanical",
+      "rationale": "Rigid-tip proxy used for approximate flexure motion visualization."
+    }
+  ],
+  "nets": [],
+  "buses": [],
+  "pin_mappings": [],
+  "assembly": [],
+  "mechanical": {
+    "physical_form": "Monolithic flexure hinge calibration coupon",
+    "enclosure_type": "3D Printed",
+    "mounting_guidance": "Print as one continuous solid and orient the flexure for the intended material/layer behavior.",
+    "fabrication_details": [
+      "Flexure web: 0.8 mm thick × 14 mm wide × 10 mm long.",
+      "Material, orientation, layer adhesion, and cycle count dominate usable travel.",
+      "The viewer uses a rigid-tip proxy and does not deform the CAD solid."
+    ],
+    "fabrication_cost_estimate_usd": 0,
+    "cad_sources": [],
+    "manufacturability_rating": "Challenging",
+    "render_dimensions": {
+      "x_mm": 64,
+      "y_mm": 34,
+      "z_mm": 18
+    },
+    "component_placements": [
+      {
+        "ref_des": "FLEX_FIXED",
+        "label": "Fixed rigid region",
+        "category": "Mechanical",
+        "layer": "mechanism",
+        "position": {
+          "x_mm": -15.8,
+          "y_mm": 0,
+          "z_mm": 0
+        },
+        "size": {
+          "x_mm": 24,
+          "y_mm": 24,
+          "z_mm": 4
+        },
+        "orientation_deg": {
+          "x_deg": 0,
+          "y_deg": 0,
+          "z_deg": 0
+        }
+      },
+      {
+        "ref_des": "FLEX_MOVING",
+        "label": "Moving rigid region",
+        "category": "Mechanical",
+        "layer": "mechanism",
+        "position": {
+          "x_mm": 15.8,
+          "y_mm": 0,
+          "z_mm": 0
+        },
+        "size": {
+          "x_mm": 24,
+          "y_mm": 24,
+          "z_mm": 4
+        },
+        "orientation_deg": {
+          "x_deg": 0,
+          "y_deg": 0,
+          "z_deg": 0
+        }
+      }
+    ],
+    "spatial_relationships": [],
+    "motion_intents": [
+      {
+        "motion_id": "flexure-bend-preview",
+        "label": "Approximate flexure bend",
+        "type": "compliant",
+        "target_ref": "FLEX_MOVING",
+        "parent_ref": "FLEX_FIXED",
+        "axis": "Y",
+        "pivot_mm": [
+          0,
+          0,
+          0
+        ],
+        "min_deg": 0,
+        "max_deg": 22,
+        "notes": "Approximate visualization only; not structural validation."
+      }
+    ],
+    "mechanism_benchmark": {
+      "kind": "monolithic_flexure_hinge",
+      "fixed_ref": "FLEX_FIXED",
+      "moving_ref": "FLEX_MOVING",
+      "flexure_thickness_mm": 0.8,
+      "flexure_width_mm": 14,
+      "flexure_length_mm": 10,
+      "rigid_body_length_mm": 24,
+      "rigid_body_width_mm": 24,
+      "rigid_body_thickness_mm": 4,
+      "bend_direction": "positive_z",
+      "nominal_travel_deg": 22,
+      "preview_samples": 41,
+      "material_note": "Flexure life depends strongly on material, print orientation, layer adhesion, thickness, and strain."
+    }
+  },
+  "constraints": [
+    "Single connected solid",
+    "No rigid-body joint"
+  ],
+  "power_rails": [],
+  "estimated_current_draw_ma": 0,
+  "fabrication_notes": [
+    "Treat the motion preview as visualization only until structural simulation exists."
+  ],
+  "assembly_metadata": {
+    "status": "example",
+    "image_features": [
+      "Compliant mechanism",
+      "Monolithic flexure",
+      "Living-hinge benchmark"
+    ]
+  },
+  "project_version_history": [],
+  "validation": {
+    "critical": [],
+    "warning": [],
+    "info": []
+  },
+  "is_valid": true,
+  "cad_model": {
+    "adapter": "forma-opencad",
+    "source": "Static example fixture for approximate compliant Motion Preview",
+    "mechanism": {
+      "family": "monolithic compliant mechanism",
+      "benchmark": "monolithic_flexure_hinge",
+      "body_count": 1,
+      "flexure": {
+        "thickness_mm": 0.8,
+        "width_mm": 14,
+        "length_mm": 10,
+        "bend_direction": "positive_z",
+        "nominal_travel_deg": 22
+      }
+    },
+    "compliant_preview": {
+      "source": "forma-compliant-approximation",
+      "method": "rigid-tip-proxy",
+      "structural_validation": false,
+      "warning": "Approximate visualization only. This does not compute flexure strain, stress, fatigue life, or a physically deformed solid.",
+      "tracks": [
+        {
+          "id": "flexure-bend-preview",
+          "label": "Approximate flexure bend",
+          "type": "compliant",
+          "target_ref": "FLEX_MOVING",
+          "parent_ref": "FLEX_FIXED",
+          "lower_limit": 0,
+          "upper_limit": 0.3839724354387525,
+          "unit": "radian",
+          "axis": [
+            0,
+            -1,
+            0
+          ],
+          "notes": "Rigid-tip proxy around the flexure center; not structural validation.",
+          "samples": [
+            {
+              "progress": 0,
+              "value": 0,
+              "unit": "radian",
+              "transform": {
+                "translation_mm": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0,
+                  0,
+                  0,
+                  1
+                ]
+              }
+            },
+            {
+              "progress": 0.5,
+              "value": 0.19198621771937624,
+              "unit": "radian",
+              "transform": {
+                "translation_mm": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0,
+                  -0.09584575252022398,
+                  0,
+                  0.9953961983671789
+                ]
+              }
+            },
+            {
+              "progress": 1,
+              "value": 0.3839724354387525,
+              "unit": "radian",
+              "transform": {
+                "translation_mm": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0,
+                  -0.1908089953765448,
+                  0,
+                  0.981627183447664
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

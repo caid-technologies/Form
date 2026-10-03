@@ -1,26 +1,60 @@
 # Architecture
 
-Forma OSS turns prompts into structured hardware projects using a sequential, validation-aware agent pipeline. The system is intentionally scoped to low-voltage maker electronics and emphasizes traceable, typed outputs.
+Forma OSS turns prompts into structured hardware projects with two explicit generation strategies. **Regular** is the default one-shot path and preserves the established sequential workflow. **Progressive** is opt-in and resolves the same canonical hardware project at progressively more expensive levels of fidelity so concept work can be reviewed before CAD.
 
-## System pipeline
+## Generation modes
+
+### Regular (default)
+
+Regular generation keeps the existing interaction and execution model:
+
 1. **Prompt + optional image** enters the system.
-2. **Safety guardrails** block high-risk domains early (weapons, medical, mains AC, etc.).
-3. **Model resolution** determines whether live LLM generation runs or a deterministic simulation fallback is used.
-4. **Intent Parser Agent** produces a high-level `ProjectOverview`.
-5. **Requirements Agent** extracts functional requirements and constraints.
-6. **Component Selection Agent** chooses parts from the seed database.
-7. **Wiring/Netlist Agent** generates connection nets and pin mappings.
-8. **Validation rules** run on the netlist.
-9. **Repair loop** re-invokes the wiring agent if critical issues are found.
-10. **BOM step** computes total cost deterministically.
-11. **Mechanical/Fabrication Agent** drafts enclosure notes and (optionally) placements.
-12. **Assembly Instruction Agent** emits step-by-step build guidance.
-13. **Post-processing** enriches missing mechanical placements for the 3D viewer.
-14. **Hardware IR** is stored in the database and rendered in the UI.
-15. **A2A transports** expose generation and validation to external agents over REST, WebSocket, optional TCP JSONL, and MCP-style JSON-RPC.
+2. **Safety guardrails** block high-risk domains early.
+3. **Model resolution** selects live LLM generation or deterministic simulation fallback.
+4. **Intent + requirements** establish the project goal and constraints.
+5. **Component selection, wiring, validation, BOM, mechanical, and assembly agents** produce the project in the established sequential pipeline.
+6. **Hardware Intermediate Representation** is persisted as the canonical structured project.
+7. Optional **whole-product image** and **native assembly CAD** outputs are generated directly when requested.
+8. The finished project is rendered in the UI and exposed through the existing API/A2A surfaces.
+
+Regular generation does **not** create subsystem visuals, wait on a visual approval gate, or require component-CAD-first assembly. The absence of a persisted `generation_mode` also resolves to Regular so existing projects and callers retain their behavior.
+
+### Progressive (explicit opt-in)
+
+Progressive generation uses the same `HardwareIntermediateRepresentation`, `SystemArchitecture`, and agent primitives, but adds a durable cost-aware design lifecycle:
+
+```text
+User intent
+  ↓
+Requirements + canonical system topology
+  ↓
+Component/object resolution
+  ↓
+Per-system concept visuals
+  ↓
+Whole-system concept render
+  ↓
+Persisted human review
+  ├─ Revise → return to the cheapest affected representation
+  └─ Approve
+       ↓
+   Continue to CAD
+       ↓
+   Component CAD artifacts
+       ↓
+   Assembly CAD
+       ↓
+   Verification / manufacturing outputs
+```
+
+The mode is persisted as `assembly_metadata.generation_mode = "progressive"`. Progressive-only metadata such as a design brief or visual approval policy does not opt a project into this lifecycle by itself.
+
+Derived representations are tracked by `forma_core/workspaces/projects/design_lifecycle.py`. Each artifact can record its owner node, fidelity, source fingerprint, dependency artifact IDs, status, and coarse execution cost. This allows downstream work to be selectively invalidated instead of replaying every stage after every change.
+
+The whole-system visual gate is resumable. **Approve concept** records acceptance without invoking CAD, **Revise** persists feedback/rejection, and **Continue to CAD** is the explicit higher-cost transition that generates/reuses component CAD before assembly CAD. Decisions are committed as project revisions, so they survive navigation, reconnects, and process restarts.
 
 ## Orchestration and model runtime
-- The backend runs an **ADK-style sequential workflow** implemented in `forma_core/agents/orchestrator.py`.
+- **Regular** runs the established ADK-style sequential workflow implemented in `forma_core/agents/orchestrator.py`; **Progressive** reuses those stages while layering persisted cost/fidelity metadata, representation fingerprints, selective invalidation, and review gates around expensive outputs.
 - Live structured JSON output is routed through the reusable `forma_core.llm` package API.
 - Shared generation, provider, validation, model, and runtime utilities live under `forma_core` so the backend, CLI, smoke tests, and future workers use the same implementation.
 - External service adapters live under `forma_core/integrations/`; Hugging Face artifact packaging and uploads are grouped under `integrations/huggingface/`.
@@ -40,20 +74,29 @@ Forma OSS turns prompts into structured hardware projects using a sequential, va
 ```mermaid
 flowchart TD
   A[Prompt + optional image] --> S[Safety guardrails]
-  S --> M[Model resolution\n(live LLM vs simulation)]
-  M --> B[Intent Parser Agent]
-  B --> C[Requirements Agent]
-  C --> D[Component Selection Agent]
-  D --> E[Wiring/Netlist Agent]
-  E --> F[Rule-based Validation]
-  F -->|critical issues| E
-  F --> G[BOM + Mechanical/Fabrication Agent]
-  G --> H[Assembly Instruction Agent]
-  H --> P[Mechanical render enrichment]
-  P --> I[Typed Hardware IR]
-  I --> J[UI: React Flow + SVG + Mermaid + 3D mech]
-  I --> K[(Project database)]
-  I --> L[A2A: REST + WebSocket + TCP JSONL + MCP]
+  S --> M[Model resolution]
+  M --> Q{Generation mode}
+
+  Q -->|Regular default| R[Established sequential agent pipeline]
+  R --> RI[Typed Hardware Intermediate Representation]
+  RI --> RO[Optional whole-product image + assembly CAD]
+
+  Q -->|Progressive opt-in| P1[Intent + requirements + system topology]
+  P1 --> P2[Subsystem concept visuals]
+  P2 --> P3[Whole-system concept render]
+  P3 --> P4{Human review}
+  P4 -->|Revise| P1
+  P4 -->|Approve| P5[Approved visual state]
+  P5 -->|Continue to CAD| P6[Component CAD artifacts]
+  P6 --> P7[Assembly CAD]
+  P7 --> PI[Typed Hardware Intermediate Representation + lifecycle artifacts]
+
+  RI --> UI[Project UI]
+  PI --> UI
+  RI --> DB[(Project revisions / database)]
+  PI --> DB
+  RI --> A2A[A2A / MCP / API]
+  PI --> A2A
 ```
 
 ## Core subsystems
@@ -66,7 +109,7 @@ flowchart TD
 - **Utilities:** Render Mermaid and SVG schematics from the IR.
 
 ## Output artifacts
-- **Hardware IR JSON** (typed source of truth)
+- **Hardware Intermediate Representation JSON** (typed source of truth)
 - **React Flow schematic** (interactive wiring view)
 - **SVG schematic** (static vector view)
 - **Mermaid diagram** (lightweight topology graph)

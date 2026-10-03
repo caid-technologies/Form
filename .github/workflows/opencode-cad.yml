@@ -1,0 +1,44 @@
+name: OpenCode STEP and conversation context
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/opencode*"
+      - "apps/api/a2a.py"
+      - "forma_core/image_providers.py"
+      - "tests/providers/test_image_providers.py"
+      - "tests/api/test_mcp_agent_compatibility.py"
+      - "apps/api/readiness_api.py"
+      - "apps/api/Dockerfile"
+      - "forma_core/opencode/**"
+      - "forma_core/workspaces/projects/**"
+      - "tests/opencode/**"
+      - "tests/projects/test_*cad*.py"
+      - "tests/projects/test_mechanism_benchmarks.py"
+      - "tests/projects/test_demo_printer_exports.py"
+      - "tests/projects/inspect_native_step.py"
+      - ".agents/skills/forma-hardware/scripts/cad.py"
+      - ".github/workflows/opencode-cad.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  native-cad:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      FORMA_CAD_RUN_INTEGRATION_TESTS: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r apps/api/requirements.txt pytest "opencad[occt] @ git+https://github.com/caid-technologies/OpenCAD.git@1c417752eb42d29b951784e80f65ac79c3fb6e0e#subdirectory=packages/opencad"
+      - run: python .agents/skills/forma-hardware/scripts/cad.py check
+      - run: python -m pytest tests/providers/test_image_providers.py tests/api/test_mcp_agent_compatibility.py tests/api/test_hosted_chat_maintenance.py -q
+      - run: python -m pytest tests/opencode tests/projects/test_cad_generation.py tests/projects/test_solid_cad.py tests/projects/test_mechanism_benchmarks.py tests/projects/test_gear_cad.py tests/projects/test_demo_printer_exports.py -q

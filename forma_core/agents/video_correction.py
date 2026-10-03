@@ -10,7 +10,7 @@ from forma_core.video_review import (
     VideoReviewClient,
 )
 from forma_core.workspaces.projects.iteration import ProjectIterator, coerce_hardware_ir
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.objects import normalize_project_namespace
 
 
@@ -39,7 +39,7 @@ class FireworksVideoSelfCorrectionAgent:
 
     def review_video(
         self,
-        current_ir: HardwareIR | Dict[str, Any],
+        current_ir: HardwareIntermediateRepresentation | Dict[str, Any],
         *,
         video_url: str,
         original_prompt: Optional[str] = None,
@@ -55,13 +55,13 @@ class FireworksVideoSelfCorrectionAgent:
 
     def correct_project_from_video(
         self,
-        current_ir: HardwareIR | Dict[str, Any],
+        current_ir: HardwareIntermediateRepresentation | Dict[str, Any],
         *,
         video_url: str,
         original_prompt: Optional[str] = None,
         project_id: Optional[str] = None,
         target_namespace: Optional[str] = None,
-    ) -> tuple[HardwareIR, VideoIterationReview]:
+    ) -> tuple[HardwareIntermediateRepresentation, VideoIterationReview]:
         ir = coerce_hardware_ir(current_ir)
         logger.info(
             "Starting video self-correction iteration: project_id=%s review_model=%s target_namespace=%s",

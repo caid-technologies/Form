@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
 import logging
 from typing import Any, Awaitable, Callable, Protocol
@@ -35,8 +36,16 @@ from forma_core.workspaces.projects import (
     ProjectStateService,
     ProjectSystem,
 )
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
+from forma_core.workspaces.projects.cad_generation import (
+    cad_project_artifact,
+)
 from forma_core.workspaces.projects.output import attach_hardware_reference_image, attach_product_image
+from forma_core.user_integrations import (
+    ResolvedIntegrationSettings,
+    UserIntegrationStore,
+    resolve_user_integration_settings,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -60,7 +69,7 @@ class GenerationEngine(Protocol):
     def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft | Awaitable[ProjectRevisionDraft]: ...
 
 
-class HardwareIRGenerationEngine:
+class HardwareIntermediateRepresentationGenerationEngine:
     """Adapter for the existing structured pipeline with legacy persistence disabled."""
 
     def __init__(
@@ -70,11 +79,13 @@ class HardwareIRGenerationEngine:
         model_name: str | None = None,
         use_simulation: bool = False,
         generate_image: bool = True,
+        settings: ResolvedIntegrationSettings | None = None,
     ) -> None:
         self.provider_name = provider_name
         self.model_name = model_name
         self.use_simulation = use_simulation
         self.generate_image = generate_image
+        self.settings = settings
 
     def generate(
         self,
@@ -92,6 +103,7 @@ class HardwareIRGenerationEngine:
             provider_name=self.provider_name,
             model_name=self.model_name,
             persist_project=False,
+            settings=self.settings,
         )
         state = orchestrator.generate_project(
             prompt,
@@ -116,7 +128,7 @@ class HardwareIRGenerationEngine:
         generate_product_image = self.generate_image and generation_status == "succeeded"
         if generate_product_image:
             emit_agent_pipeline_event("default", "image_generation", "started")
-        attach_product_image(prompt, state, generate_image=generate_product_image)
+        attach_product_image(prompt, state, generate_image=generate_product_image, settings=self.settings)
         if image_data:
             attach_hardware_reference_image(state, image_data, media_type=decoded_media_type or image_media_type)
         if generate_product_image:
@@ -155,7 +167,7 @@ def _reference_image_bytes(image_data: str | None) -> tuple[bytes | None, str | 
         return None, None
 
 
-def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> ProjectRevisionDraft:
+def build_generation_draft(design_brief: DesignBrief, state: HardwareIntermediateRepresentation) -> ProjectRevisionDraft:
     component_refs = [component.ref_des for component in state.components]
     known_component_refs = set(component_refs)
     used_system_ids = {"system-primary"}
@@ -252,6 +264,9 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> Proj
             uri=f"{revision_base}/assembly",
             media_type="application/json",
         ))
+    cad_artifact = cad_project_artifact(state, str(design_brief.project_id))
+    if cad_artifact is not None:
+        artifacts.append(cad_artifact)
 
     generation_run = (state.assembly_metadata or {}).get("generation_run") or {}
     generation_records = generation_run.get("records") if isinstance(generation_run, dict) else {}
@@ -296,7 +311,7 @@ class GenerationWorker:
         project_publisher: ProjectPublisher | None = None,
     ) -> None:
         self._state = state_service
-        self._engine = engine or HardwareIRGenerationEngine()
+        self._engine = engine or HardwareIntermediateRepresentationGenerationEngine()
         self._project_publisher = project_publisher
 
     def worker_definition(self) -> WorkerDefinition:
@@ -364,6 +379,15 @@ class GenerationWorker:
             cancellation_check = None
 
         try:
+            generation_engine = self._engine
+            if isinstance(self._engine, HardwareIntermediateRepresentationGenerationEngine):
+                settings = await asyncio.to_thread(
+                    resolve_user_integration_settings,
+                    UserIntegrationStore.for_user(owner_user_id),
+                    fail_open=False,
+                )
+                generation_engine = copy.copy(self._engine)
+                generation_engine.settings = settings
             if cancellation_check is not None and cancellation_check():
                 return _cancelled_result(request)
             progress_sequence = max(0, int(request.metadata.get("progress_sequence_start") or 0)) + 1
@@ -374,7 +398,7 @@ class GenerationWorker:
                 percent_complete=10,
                 message="Generating structured project state from the frozen DesignBrief.",
             ))
-            if isinstance(self._engine, HardwareIRGenerationEngine):
+            if isinstance(generation_engine, HardwareIntermediateRepresentationGenerationEngine):
                 event_loop = asyncio.get_running_loop()
 
                 prior_generation_run = request.metadata.get("prior_generation_run")
@@ -430,15 +454,18 @@ class GenerationWorker:
                         future.result()
 
                     with observe_agent_pipeline(record_pipeline_event, cancellation_check=cancellation_check):
-                        generation_parameters = inspect.signature(self._engine.generate).parameters
+                        generation_parameters = inspect.signature(generation_engine.generate).parameters
                         if "generation_metadata" not in generation_parameters:
-                            return self._engine.generate(payload.design_brief)
-                        return self._engine.generate(
+                            return generation_engine.generate(payload.design_brief)
+                        return generation_engine.generate(
                             payload.design_brief,
                             generation_metadata={
                                 "prior_generation_run": prior_generation_run,
                                 "retry_stage": retry_stage,
                                 "stage_checkpoint": record_stage_checkpoint,
+                                "generation_mode": request.metadata.get("generation_mode", "regular"),
+                                "visual_approval_policy": request.metadata.get("visual_approval_policy"),
+                                "cad_required": bool(request.metadata.get("cad_required", False)),
                             },
                         )
 
@@ -475,6 +502,8 @@ class GenerationWorker:
                     project_id=request.project_id,
                     owner_user_id=owner_user_id,
                     source_job_id=source_job_id,
+                    design_brief_id=request.design_brief_id,
+                    design_brief_version=request.design_brief_version,
                 )
             self._publish(outcome.revision, payload.design_brief, owner_user_id)
         except PipelineCancelledError:
@@ -575,7 +604,7 @@ def _success_result(request: WorkerRequest, outcome: ProjectRevisionOutcome) -> 
     )
 
 
-def _generation_retry_metadata(state: HardwareIR) -> dict[str, Any] | None:
+def _generation_retry_metadata(state: HardwareIntermediateRepresentation) -> dict[str, Any] | None:
     generation_run = (state.assembly_metadata or {}).get("generation_run") or {}
     records = generation_run.get("records") if isinstance(generation_run, dict) else None
     if not isinstance(records, dict):
@@ -672,6 +701,6 @@ __all__ = [
     "GenerationEngine",
     "GenerationWorker",
     "GenerationWorkerPayload",
-    "HardwareIRGenerationEngine",
+    "HardwareIntermediateRepresentationGenerationEngine",
     "build_generation_draft",
 ]

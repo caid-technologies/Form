@@ -1,0 +1,45 @@
+name: GUI package scope regression
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/web/next.config.js'
+      - 'apps/web/tsconfig.json'
+      - 'apps/web/config/forma-gui-resolution.cjs'
+      - 'apps/web/package*.json'
+      - 'apps/web/test/forma-gui-resolution.test.cjs'
+      - 'apps/web/scripts/check-legacy-gui-build.cjs'
+      - '.github/workflows/forma-gui-resolution.yml'
+permissions:
+  contents: read
+jobs:
+  production-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - run: node --test test/forma-gui-resolution.test.cjs
+      - name: Reproduce old-scope failure and build repaired JS, CSS and types
+        env:
+          # Keep the failing control unchanged after this repair lands on main.
+          # Using pull_request.base.sha would make future PRs test a repaired base.
+          GUI_BASE_SHA: '567dbf7bba5d8252a5f45c93621667f9b71a325f'
+        run: node scripts/check-legacy-gui-build.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gui-package-scope-results
+          path: apps/web/gui-scope-results/
+          retention-days: 7

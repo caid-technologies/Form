@@ -60,7 +60,7 @@ class ProjectEngagementApiTests(unittest.TestCase):
 
     def test_save_endpoint_persists_for_signed_in_reader(self) -> None:
         project = _project("public-project")
-        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+        with patch.object(main, "_resolve_project_reader", return_value=project), patch.object(
             main,
             "save_project_for_user",
             return_value={"saved": True, "save_count": 4, "remix_count": 1},
@@ -73,7 +73,7 @@ class ProjectEngagementApiTests(unittest.TestCase):
 
     def test_anonymous_user_cannot_save_or_remix(self) -> None:
         project = _project("public-project")
-        with patch.object(main, "get_generated_project", return_value=project):
+        with patch.object(main, "_resolve_project_reader", return_value=project):
             with self.assertRaises(HTTPException) as raised_save:
                 main.save_project_endpoint("public-project", _anonymous_context())
             with self.assertRaises(HTTPException) as raised_remix:
@@ -85,7 +85,7 @@ class ProjectEngagementApiTests(unittest.TestCase):
     def test_remix_endpoint_returns_the_new_owned_project(self) -> None:
         source = _project("source-project")
         remixed = _project("remix-project", owner_user_id="user-b")
-        with patch.object(main, "get_generated_project", return_value=source), patch.object(
+        with patch.object(main, "_resolve_project_reader", return_value=source), patch.object(
             main, "remix_generated_project", return_value=remixed
         ), patch.object(
             main,

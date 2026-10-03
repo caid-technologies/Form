@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
 import uuid
-from pathlib import Path
 
 from forma_core.jobs.store import JobMetadataStore
 
 
 class ProjectDeletionJobTests(unittest.TestCase):
     def test_project_jobs_are_cancelled_and_deleted_without_touching_other_jobs(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            store = JobMetadataStore(db_path=str(Path(directory) / "jobs.db"))
+        store = JobMetadataStore(db_path=":memory:")
+        try:
             project_id = str(uuid.uuid4())
             other_project_id = str(uuid.uuid4())
             matching_ids = []
@@ -45,6 +43,8 @@ class ProjectDeletionJobTests(unittest.TestCase):
             self.assertEqual(2, store.delete_project_jobs(project_id))
             self.assertTrue(all(store.get_job(job_id) is None for job_id in matching_ids))
             self.assertIsNotNone(store.get_job("job-2"))
+        finally:
+            store.close()
 
 
 if __name__ == "__main__":

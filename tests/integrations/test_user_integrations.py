@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import stat
 import tempfile
@@ -18,8 +19,9 @@ from forma_core.user_integrations import (
     apply_user_integrations_to_environment,
     default_integration_store,
     integration_status_payload,
+    resolve_user_integration_settings,
 )
-from forma_core.llm_providers import resolve_llm_runtime_config
+from forma_core.llm_providers import build_llm_provider, resolve_llm_runtime_config
 
 
 TEST_ENV_KEYS = (
@@ -266,12 +268,44 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertNotIn("OPENAI_MODEL", os.environ)
             self.assertNotIn("OPENAI_STREAM_MODEL", os.environ)
 
+    def test_request_scoped_settings_isolate_concurrent_provider_credentials(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store_a = UserIntegrationStore(Path(tmpdir) / "user-a.json")
+            store_b = UserIntegrationStore(Path(tmpdir) / "user-b.json")
+            store_a.update_integration(
+                "openai",
+                field_values={"api_key": "sk-user-a", "model": "gpt-user-a"},
+            )
+            store_b.update_integration(
+                "anthropic",
+                field_values={"api_key": "sk-user-b", "model": "claude-user-b"},
+            )
+            environment_before = dict(os.environ)
+
+            async def resolve_provider(store: UserIntegrationStore):
+                settings = await asyncio.to_thread(resolve_user_integration_settings, store)
+                runtime = resolve_llm_runtime_config(settings=settings)
+                provider = build_llm_provider(runtime_config=runtime, settings=settings)
+                return runtime.provider, runtime.model, provider.api_key
+
+            async def resolve_both():
+                return await asyncio.gather(resolve_provider(store_a), resolve_provider(store_b))
+
+            resolved = asyncio.run(resolve_both())
+
+            self.assertEqual(
+                [("openai", "gpt-user-a", "sk-user-a"), ("anthropic", "claude-user-b", "sk-user-b")],
+                resolved,
+            )
+            self.assertEqual(environment_before, dict(os.environ))
+
     def test_status_payload_reports_environment_as_configured_fallback(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             os.environ["OPENAI_API_KEY"] = "sk-env-original"
             os.environ["IMAGE_PROVIDER"] = "openai"
             os.environ["OPENAI_IMAGE_MODEL"] = "gpt-image-2"
             store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            environment_before = dict(os.environ)
 
             payload = integration_status_payload(store)
             openai = integration_by_id(payload, "openai")
@@ -282,6 +316,7 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertTrue(field_by_id(openai, "api_key")["configured"])
             self.assertEqual("environment", field_by_id(runtime, "image_provider")["source"])
             self.assertTrue(field_by_id(runtime, "image_provider")["configured"])
+            self.assertEqual(environment_before, dict(os.environ))
 
     def test_image_env_defaults_do_not_mark_openai_or_custom_image_configured(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -341,7 +376,7 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertEqual("2", os.environ["TAVILY_CRAWL_MAX_DEPTH"])
             self.assertEqual("mini", os.environ["TAVILY_RESEARCH_MODEL"])
 
-    def test_saved_byok_overrides_environment_without_hiding_other_env_providers(self) -> None:
+    def test_saved_byok_is_request_scoped_without_hiding_other_env_providers(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             os.environ["OPENAI_API_KEY"] = "sk-platform"
             os.environ["OPENAI_MODEL"] = "gpt-platform"
@@ -359,10 +394,17 @@ class UserIntegrationTests(unittest.TestCase):
 
             payload = integration_status_payload(store)
 
-            self.assertEqual("sk-user", os.environ["OPENAI_API_KEY"])
-            self.assertEqual("gpt-user", os.environ["OPENAI_MODEL"])
-            self.assertEqual("openai,baseten", os.environ["LLM_ALLOWED_PROVIDERS"])
-            self.assertEqual("gpt-platform,gpt-user", os.environ["OPENAI_ALLOWED_MODELS"])
+            self.assertEqual("sk-platform", os.environ["OPENAI_API_KEY"])
+            self.assertEqual("gpt-platform", os.environ["OPENAI_MODEL"])
+            self.assertEqual("openai", os.environ["LLM_ALLOWED_PROVIDERS"])
+            self.assertEqual("gpt-platform", os.environ["OPENAI_ALLOWED_MODELS"])
+            settings = resolve_user_integration_settings(store)
+            runtime = resolve_llm_runtime_config(settings=settings)
+            provider = build_llm_provider(runtime_config=runtime, settings=settings)
+            self.assertEqual("openai", runtime.provider)
+            self.assertEqual("gpt-user", runtime.model)
+            self.assertEqual("sk-user", provider.api_key)
+            self.assertIn("baseten", runtime.allowed_providers or [])
             openai = integration_by_id(payload, "openai")
             self.assertEqual("saved", field_by_id(openai, "api_key")["source"])
             self.assertEqual("saved", field_by_id(openai, "model")["source"])
@@ -1260,7 +1302,7 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertIsInstance(default_integration_store(), EncryptedFileIntegrationStore)
 
-    def test_supabase_workspace_load_failure_does_not_crash_runtime_apply(self) -> None:
+    def test_supabase_workspace_load_failure_only_uses_empty_fallback_locally(self) -> None:
         class BrokenWorkspaceStore(SupabaseWorkspaceIntegrationStore):
             calls = 0
 
@@ -1296,12 +1338,16 @@ class UserIntegrationTests(unittest.TestCase):
         with isolated_integration_env(), self.assertLogs("forma_core.user_integrations", level="WARNING") as logs:
             first = apply_user_integrations_to_environment(BrokenWorkspaceStore())
             second = apply_user_integrations_to_environment(BrokenWorkspaceStore())
+            os.environ["FORMA_DEPLOYMENT_MODE"] = "hosted"
+            user_integrations._WORKSPACE_CONFIG_FAILURE_CACHE.clear()
+            with self.assertRaisesRegex(RuntimeError, "PGRST002"):
+                apply_user_integrations_to_environment(BrokenWorkspaceStore())
 
         self.assertEqual([], first.integrations)
         self.assertEqual([], second.integrations)
-        self.assertEqual(1, BrokenWorkspaceStore.calls)
+        self.assertEqual(2, BrokenWorkspaceStore.calls)
         self.assertIn("PGRST002", "\n".join(logs.output))
-        self.assertEqual(1, "\n".join(logs.output).count("PGRST002"))
+        self.assertEqual(2, "\n".join(logs.output).count("PGRST002"))
 
 
 if __name__ == "__main__":

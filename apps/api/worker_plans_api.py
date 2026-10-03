@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.context_builds import ContextBuildDispatcher
+from apps.api.hosted_chat import require_hosted_chat_enabled
 from forma_core.database import (
     cancel_project_generation_plan,
     get_project_generation_plan,
@@ -47,6 +48,7 @@ async def execute_build_plan_endpoint(
 ) -> WorkerExecutionPlan:
     """Execute a plan inside this request so serverless runtimes keep it alive."""
 
+    require_hosted_chat_enabled(user)
     owner = _owner(user)
     try:
         plan = get_project_generation_plan(plan_id, owner)
@@ -82,6 +84,7 @@ async def reset_build_plan_endpoint(
 ) -> WorkerExecutionPlan:
     """Reset a failed generation plan so the current user can try it again."""
 
+    require_hosted_chat_enabled(user)
     owner = _owner(user)
     try:
         plan = get_project_generation_plan(plan_id, owner)

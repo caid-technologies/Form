@@ -1,6 +1,9 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List, Optional, Dict, Any, Iterable, Mapping
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from typing import List, Optional, Dict, Any, Iterable, Mapping, Literal
+from datetime import datetime
 import re
+from forma_core.workspaces.projects.mechanism_benchmarks import MechanismBenchmark
+from forma_core.workspaces.projects.solid_cad import CadOperation
 
 # ==========================================
 # 1. Base / Seed Component Database Schemas
@@ -45,7 +48,7 @@ class PartDefinition(BaseModel):
     unit_price: float = Field(0.0, ge=0.0, description="Selected estimated unit price in USD")
 
 # ==========================================
-# 2. Project-Level Hardware IR (Shared State)
+# 2. Project-Level Hardware Intermediate Representation (Shared State)
 # ==========================================
 
 class ProjectOverview(BaseModel):
@@ -77,7 +80,7 @@ class ComponentInstance(BaseModel):
     configuration: Dict[str, Any] = Field(default_factory=dict, description="Instance-specific configuration only")
 
     # Transitional runtime fields. They are deliberately excluded from serialized
-    # Hardware IR; HardwareIR hydrates them from the referenced PartDefinition.
+    # Hardware Intermediate Representation; HardwareIntermediateRepresentation hydrates them from the referenced PartDefinition.
     part_number: str = Field("", exclude=True, repr=False)
     name: str = Field("", exclude=True, repr=False)
     category: str = Field("", exclude=True, repr=False)
@@ -196,7 +199,52 @@ class MechanicalSpatialRelationship(BaseModel):
     offset_mm: Optional[float] = Field(None, description="Signed offset between components along the dominant axis")
     notes: Optional[str] = Field(None, description="Additional placement or clearance rationale")
 
+class MechanicalMotionIntent(BaseModel):
+    motion_id: Optional[str] = Field(None, description="Stable project-local identifier for this motion")
+    label: Optional[str] = Field(None, description="Human-readable name for the motion preview")
+    type: Literal["revolute", "prismatic", "compliant"] = Field(..., description="Authoring intent. Rigid revolute/prismatic intents are resolved and evaluated by OpenCAD; compliant intent is reserved for future deformation preview.")
+    target_ref: str = Field(..., description="Reference designator of the moving placement")
+    parent_ref: Optional[str] = Field(None, description="Optional reference designator of the stationary parent")
+    axis: Literal["X", "Y", "Z"] = Field("Z", description="Project-space motion axis")
+    pivot_mm: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0], min_length=3, max_length=3, description="Project-space pivot [x, y, z] in millimeters")
+    min_deg: Optional[float] = Field(None, description="Minimum angular travel for revolute/compliant motion")
+    max_deg: Optional[float] = Field(None, description="Maximum angular travel for revolute/compliant motion")
+    min_mm: Optional[float] = Field(None, description="Minimum linear travel for prismatic motion")
+    max_mm: Optional[float] = Field(None, description="Maximum linear travel for prismatic motion")
+    notes: Optional[str] = Field(None, description="Motion intent, stops, clearances, or preview limitations")
+
+    @field_validator("axis", mode="before")
+    @classmethod
+    def normalize_axis(cls, value: Any) -> str:
+        axis = str(value or "Z").strip().upper()
+        if axis not in {"X", "Y", "Z"}:
+            raise ValueError("Mechanical motion axis must be X, Y, or Z")
+        return axis
+
+    @field_validator("pivot_mm", mode="before")
+    @classmethod
+    def normalize_pivot(cls, value: Any) -> Any:
+        if value is None:
+            return [0.0, 0.0, 0.0]
+        if isinstance(value, Mapping):
+            return [
+                value.get("x_mm", value.get("x", 0.0)),
+                value.get("y_mm", value.get("y", 0.0)),
+                value.get("z_mm", value.get("z", 0.0)),
+            ]
+        return value
+
+
 class MechanicalNotes(BaseModel):
+    cad_operations: List[CadOperation] = Field(default_factory=list, max_length=32, description="Explicit solid CAD in millimeters, applied in order; first operation must add. Use for standalone solids (components/nets may be empty). An empty list retains the legacy enclosure generator.")
+
+    @field_validator("cad_operations")
+    @classmethod
+    def first_cad_operation_adds(cls, operations):
+        if operations and operations[0].operation != "add":
+            raise ValueError("The first CAD operation must add a solid.")
+        return operations
+
     physical_form: str = Field(
         "Unspecified",
         description=(
@@ -213,6 +261,8 @@ class MechanicalNotes(BaseModel):
     render_dimensions: Optional[MechanicalVector3] = Field(None, description="Overall live-render envelope dimensions in millimeters")
     component_placements: List[MechanicalPlacement] = Field(default_factory=list, description="Per-component 3D placements for live Three.js rendering")
     spatial_relationships: List[MechanicalSpatialRelationship] = Field(default_factory=list, description="Physical offsets and alignment relationships between placed components")
+    motion_intents: List[MechanicalMotionIntent] = Field(default_factory=list, description="Agent-authored motion intent resolved into OpenCAD kinematic joints during CAD generation")
+    mechanism_benchmark: Optional[MechanismBenchmark] = Field(None, description="Bounded mechanism: print_in_place_hinge, monolithic_flexure_hinge, or spur_gear_pair. For two meshing gears use spur_gear_pair (defaults: 20/40 teeth, module 2 mm). CAD generation creates real gear bodies and synchronized OpenCAD poses.")
 
 class PinMappingEntry(BaseModel):
     mcu_pin: str = Field(..., description="MCU pin identifier, e.g., 'GPIO23'")
@@ -355,7 +405,7 @@ def expand_component_instances(
 
     expanded: List[ComponentInstance] = []
     used_refs: set[str] = set()
-    for value in components:
+    for index, value in enumerate(components):
         payload = _instance_payload(value)
         configuration = dict(payload.get("configuration") or {})
         legacy_quantity = configuration.pop("_legacy_aggregate_quantity", None)
@@ -375,7 +425,12 @@ def expand_component_instances(
             if ref_des in used_refs:
                 raise ValueError(f"Duplicate component reference designator '{ref_des}'.")
             used_refs.add(ref_des)
-            expanded.append(ComponentInstance.model_validate({**payload, "ref_des": ref_des}))
+            try:
+                expanded.append(ComponentInstance.model_validate({**payload, "ref_des": ref_des}))
+            except ValidationError as exc:
+                raise ValidationError.from_exception_data("ComponentInstance", [
+                    {**error, "loc": ("components", index, *error["loc"])} for error in exc.errors()
+                ]) from exc
     return expanded
 
 
@@ -474,7 +529,7 @@ def component_detail_payload(component: ComponentInstance) -> Dict[str, Any]:
         "pins": [pin.model_dump(mode="json") for pin in component.pins],
     }
 
-class HardwareIR(BaseModel):
+class HardwareIntermediateRepresentation(BaseModel):
     """The master typed document capturing the entire generated hardware design."""
     hardware_ir_version: str = Field("0.2", description="Structured schema version")
     overview: Optional[ProjectOverview] = Field(None, description="Project overview metadata")
@@ -488,6 +543,13 @@ class HardwareIR(BaseModel):
     pin_mappings: List[PinMappingEntry] = Field(default_factory=list, description="MCU functional pin map")
     assembly: List[AssemblyStep] = Field(default_factory=list, description="Step-by-step physical build instruction package")
     mechanical: Optional[MechanicalNotes] = Field(None, description="Enclosure and fabrications specifications")
+    cad_model: Optional[Any] = Field(
+        None,
+        description=(
+            "Optional canonical CAD model source for the project. This may be a serialized Forma/OpenCAD adapter "
+            "payload, a server-accessible file path or URL, an S3 location, or renderable mesh data."
+        ),
+    )
     
     # Extra requested fields
     constraints: List[str] = Field(default_factory=list, description="Project architectural and electrical constraints")
@@ -507,10 +569,14 @@ class HardwareIR(BaseModel):
             return value
         payload = dict(value)
         components = expand_component_instances(payload.get("components") or [])
-        existing_definitions = [
-            item if isinstance(item, PartDefinition) else PartDefinition.model_validate(item)
-            for item in (payload.get("part_definitions") or [])
-        ]
+        existing_definitions = []
+        for index, item in enumerate(payload.get("part_definitions") or []):
+            try:
+                existing_definitions.append(item if isinstance(item, PartDefinition) else PartDefinition.model_validate(item))
+            except ValidationError as exc:
+                raise ValidationError.from_exception_data("PartDefinition", [
+                    {**error, "loc": ("part_definitions", index, *error["loc"])} for error in exc.errors()
+                ]) from exc
         definitions = derive_part_definitions(components, existing_definitions)
         payload["hardware_ir_version"] = "0.2"
         payload["components"] = components
@@ -520,7 +586,7 @@ class HardwareIR(BaseModel):
         return payload
 
     @model_validator(mode="after")
-    def validate_component_model(self) -> "HardwareIR":
+    def validate_component_model(self) -> "HardwareIntermediateRepresentation":
         definitions = {item.part_definition_id: item for item in self.part_definitions}
         component_refs: Dict[str, ComponentInstance] = {}
         expected_bom_refs: Dict[str, List[str]] = {}
@@ -611,19 +677,91 @@ class Project(BaseModel):
     """Durable design artifact contained by a workspace."""
 
     project_id: str
+    owner_user_id: str | None = None
     chat_id: str | None = None
     title: str
     prompt: str
-    hardware_ir: HardwareIR | Dict[str, Any]
+    hardware_ir: HardwareIntermediateRepresentation | Dict[str, Any]
     created_at: str
+    updated_at: str | None = None
+    creation_channel: str = "hosted"
     visibility: str = "public"
+
+
+class ProjectSummary(BaseModel):
+    """Common gallery contract returned for every project creation channel."""
+
+    project_id: str
+    creation_channel: str
+    chat_id: str | None = None
+    title: str
+    prompt: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
+    visibility: str = "public"
+    can_chat: bool = False
+    creator_display: str = "unknown"
+    creator_username: str | None = None
+    creator_image_url: str | None = None
+    parts_count: int = 0
+    save_count: int = 0
+    remix_count: int = 0
+    saved: bool = False
+    has_product_image: bool = False
+    product_image_url: str | None = None
+    product_image_data: str | None = None
+    product_image_content_type: str | None = None
+    product_image_model: str | None = None
+    product_visual_sequence: list[dict[str, Any]] = Field(default_factory=list)
+    image_output_status: str | None = None
+    generation_status: str = "succeeded"
+    project_readiness: str = "complete"
+
+    model_config = ConfigDict(extra="allow")
+
+    def __getitem__(self, key: str) -> Any:
+        """Allow existing response assertions to inspect typed contracts by key."""
+        return getattr(self, key)
+
+
+class ProjectIdentityResponse(BaseModel):
+    """Stable identity projection shared by hosted and CLI project listings."""
+
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
+
+    project_id: str
+    owner_user_id: str | None = None
+    creation_channel: str = "hosted"
+    title: str = ""
+    prompt: str = ""
+    chat_id: str | None = None
+    workspace_id: str | None = None
+    visibility: str = "public"
+    status: str = "active"
+    current_revision: int = 0
+    current_revision_id: str | None = None
+    created_at: str | datetime | None = None
+    updated_at: str | datetime | None = None
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+
+class ProjectDetail(ProjectSummary):
+    """Extended project contract used by authenticated detail views."""
+
+    project_ir: dict[str, Any] | HardwareIntermediateRepresentation | None = None
+    project_object: dict[str, Any] | None = None
+    mermaid_code: str | None = None
+    svg_schematic: str | None = None
+    generation_stages: dict[str, Any] = Field(default_factory=dict)
 
 # ==========================================
 # 3. API Requests & Response Models
 # ==========================================
 
 class GenerateProjectRequest(BaseModel):
-    prompt: str = Field(..., description="User's natural language project description")
+    prompt: str = Field(..., max_length=12000, description="User's natural language project description")
     project_id: Optional[str] = Field(
         None,
         description="Optional context project id whose workflow authorizes this generation.",
@@ -638,11 +776,16 @@ class GenerateProjectRequest(BaseModel):
     )
     image_data: Optional[str] = Field(
         None,
+        max_length=8 * 1024 * 1024,
         description="Optional data URL or base64-encoded reference image for multimodal project extraction"
     )
     generate_image: bool = Field(
         False,
         description="When true, generate a product concept image with the configured image provider"
+    )
+    generation_mode: str = Field(
+        "regular",
+        description="Generation strategy: regular one-shot or progressive hierarchical generation.",
     )
     provider: Optional[str] = Field(
         None,
@@ -678,6 +821,14 @@ class GenerateProjectRequest(BaseModel):
         le=8,
         description="Maximum number of relevant completed jobs to include when data_sources contains past_jobs.",
     )
+
+    @field_validator("generation_mode", mode="before")
+    @classmethod
+    def normalize_generation_mode(cls, value: Any) -> str:
+        normalized = str(value or "regular").strip().lower()
+        if normalized not in {"regular", "progressive"}:
+            raise ValueError("generation_mode must be regular or progressive.")
+        return normalized
 
     @field_validator("provider", "model", "project_id", "retry_stage", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
     @classmethod
@@ -803,7 +954,11 @@ class IterateProjectRequest(BaseModel):
         None,
         description="Optional runtime model override for the iteration.",
     )
-    save: bool = Field(True, description="When true, persist the revised HardwareIR over the existing project record.")
+    save: bool = Field(True, description="When true, persist the revised HardwareIntermediateRepresentation over the existing project record.")
+    idempotency_key: Optional[str] = Field(
+        None,
+        description="Optional stable key used to replay a saved iteration without creating another revision.",
+    )
 
     @field_validator("instruction", mode="before")
     @classmethod
@@ -812,7 +967,7 @@ class IterateProjectRequest(BaseModel):
             return value.strip()
         return value
 
-    @field_validator("namespace", "provider", "model", mode="before")
+    @field_validator("namespace", "provider", "model", "idempotency_key", mode="before")
     @classmethod
     def strip_optional_iteration_selector(cls, value: Any) -> Any:
         if isinstance(value, str):
@@ -843,7 +998,11 @@ class VideoSelfCorrectRequest(BaseModel):
         None,
         description="Optional Fireworks review model override. Defaults to kimi-k2p6 frame review unless native video deployment routing is configured.",
     )
-    save: bool = Field(True, description="When true, persist the revised HardwareIR over the existing project record.")
+    save: bool = Field(True, description="When true, persist the revised HardwareIntermediateRepresentation over the existing project record.")
+    idempotency_key: Optional[str] = Field(
+        None,
+        description="Optional stable key used to replay a saved correction without creating another revision.",
+    )
 
     @field_validator("video_url", mode="before")
     @classmethod
@@ -852,7 +1011,7 @@ class VideoSelfCorrectRequest(BaseModel):
             return value.strip()
         return value
 
-    @field_validator("video_key", "namespace", "provider", "model", "review_model", mode="before")
+    @field_validator("video_key", "namespace", "provider", "model", "review_model", "idempotency_key", mode="before")
     @classmethod
     def strip_optional_video_review_selector(cls, value: Any) -> Any:
         if isinstance(value, str):

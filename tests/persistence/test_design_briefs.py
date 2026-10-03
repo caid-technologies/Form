@@ -51,6 +51,7 @@ def sqlite_repository() -> Iterator[None]:
             yield
         finally:
             database._DATABASE_REPOSITORY = original_repository
+            provider.dispose()
 
 
 def brief_payload(*, summary: str = "A compact controller") -> dict[str, object]:

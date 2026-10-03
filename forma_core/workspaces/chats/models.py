@@ -20,6 +20,7 @@ class ChatMessage(BaseModel):
     status: str | None = None
     timestamp: str | None = None
     projectId: str | None = None
+    revisionId: str | None = None
     pipelineProgress: Dict[str, Any] | None = None
 
 

@@ -21,11 +21,30 @@ The combined dev launcher starts the backend and frontend together and writes ba
 ./scripts/development/dev.sh
 ```
 
+On Windows PowerShell, use the native launcher instead:
+
+```powershell
+.\scripts\development\dev.ps1
+```
+
+On first run it installs missing dependencies, defaults to local auth with
+SQLite without selecting an LLM, and stores a generated encryption key in
+`.forma/local-secrets.env`. The connected host agent authors the Hardware Intermediate Representation;
+Forma validates and compiles it deterministically. Set `FORMA_USER_SECRETS_KEY`
+explicitly when the workspace must use an existing encrypted settings store.
+
 If you run uvicorn directly and want the frontend LOGS tab to show backend output, set `BACKEND_LOG_FILE=.logs/backend-dev.log`.
 
 Tests:
 ```bash
 ./scripts/quality/test.sh
+```
+
+Windows PowerShell equivalent:
+
+```powershell
+.\.venv\Scripts\python.exe -m compileall -q apps/api forma_core evals scripts tests
+.\.venv\Scripts\python.exe -m unittest discover -s tests -t . -v
 ```
 
 Frontend:
@@ -46,7 +65,7 @@ cargo run --manifest-path rust/Cargo.toml -p forma-edge -- linux-snapshot
 ## Adding a new agent
 1. Define or extend the relevant Pydantic schema in `apps/api/models.py`.
 2. Add a new step in `apps/api/agents/orchestrator.py`.
-3. Ensure the agent’s output is merged into the Hardware IR.
+3. Ensure the agent’s output is merged into the Hardware Intermediate Representation.
 4. Update docs in `docs/agents.md` and `docs/architecture.md`.
 
 ## Extending validation rules
@@ -63,3 +82,6 @@ cargo run --manifest-path rust/Cargo.toml -p forma-edge -- linux-snapshot
 - Main UI: `apps/web/app/page.tsx`
 - Styling: Tailwind + custom CSS in `apps/web/app/globals.css`
 - Example IRs: `apps/web/public/examples/`
+- CAD models: add a `cad_model` to the Hardware Intermediate Representation. The project CAD tab accepts
+  serialized mesh payloads directly, or uses `NEXT_PUBLIC_OPENCAD_URL` to import
+  an authorized browser-loadable CAD URL or fetch an OpenCAD shape mesh.

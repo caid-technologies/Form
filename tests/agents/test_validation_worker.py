@@ -31,7 +31,7 @@ from forma_core.workspaces.projects import (
 )
 from forma_core.workspaces.projects.models import (
     ComponentInstance,
-    HardwareIR,
+    HardwareIntermediateRepresentation,
     ProjectOverview,
     ValidationIssue,
     ValidationSummary,
@@ -77,14 +77,14 @@ class CountingValidationEngine:
 class ValidationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
-        provider = create_sqlite_provider(
+        self.provider = create_sqlite_provider(
             source="validation worker test",
             url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
-        provider.initialize()
-        self.session_factory = provider.session_factory
-        self.repository = SqlAlchemyRepository(provider.session_factory)
+        self.provider.initialize()
+        self.session_factory = self.provider.session_factory
+        self.repository = SqlAlchemyRepository(self.provider.session_factory)
         self.state = ProjectStateService(self.repository)
         self.reports = ValidationReportService(self.repository)
         self.workflow = ProjectWorkflowService(self.repository)
@@ -102,6 +102,7 @@ class ValidationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def tearDown(self) -> None:
+        self.provider.dispose()
         self.directory.cleanup()
 
     def _persist_brief(self) -> DesignBrief:
@@ -148,7 +149,7 @@ class ValidationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             category="Microcontroller",
             rationale="Provides the requested control function.",
         )
-        state = HardwareIR(
+        state = HardwareIntermediateRepresentation(
             overview=ProjectOverview(
                 title="Validation fixture",
                 description="Fixture with deliberately mixed validation results.",

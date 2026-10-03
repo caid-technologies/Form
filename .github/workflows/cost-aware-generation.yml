@@ -1,0 +1,79 @@
+name: Cost-aware generation
+
+on:
+  pull_request:
+    paths:
+      - "forma_core/agents/pipeline.py"
+      - "forma_core/workspaces/projects/cad_generation.py"
+      - "forma_core/workspaces/projects/design_lifecycle.py"
+      - "forma_core/workspaces/projects/generation_mode.py"
+      - "forma_core/workspaces/projects/output.py"
+      - "forma_core/workspaces/projects/models.py"
+      - "forma_core/workspaces/context/models.py"
+      - "forma_core/workspaces/context/pdf.py"
+      - "forma_core/workers/generation.py"
+      - "forma_core/database.py"
+      - "apps/api/a2a.py"
+      - "apps/api/main.py"
+      - "apps/api/context_builds.py"
+      - "apps/api/context_gathering_api.py"
+      - "apps/web/app/forma-workspace.tsx"
+      - "apps/web/app/forma-workspace/home-chat-view.tsx"
+      - "tests/agents/test_cost_aware_pipeline.py"
+      - "tests/agents/test_generation_stages.py"
+      - "tests/projects/test_cad_generation.py"
+      - "tests/projects/test_design_lifecycle.py"
+      - "tests/projects/test_hierarchical_cad.py"
+      - "tests/projects/test_hierarchical_visuals.py"
+      - "tests/projects/test_mechanical_motion.py"
+      - "tests/projects/test_mechanism_benchmarks.py"
+      - "tests/projects/test_generation_mode_requests.py"
+      - "tests/projects/test_context_gathering.py"
+      - "tests/projects/test_pdf_context.py"
+      - "tests/projects/test_pdf_context_ingestion.py"
+      - "tests/api/test_progressive_visual_decision.py"
+      - ".github/workflows/cost-aware-generation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+      - name: Install Python dependencies
+        run: python -m pip install -r apps/api/requirements.txt pytest
+      - name: Run generation lifecycle tests
+        env:
+          FORMA_DEV_MODE: "true"
+          DATABASE_BACKEND: "sqlite"
+        run: >-
+          python -m pytest -q
+          tests/agents/test_cost_aware_pipeline.py
+          tests/agents/test_generation_stages.py
+          tests/projects/test_cad_generation.py
+          tests/projects/test_design_lifecycle.py
+          tests/projects/test_hierarchical_cad.py
+          tests/projects/test_hierarchical_visuals.py
+          tests/projects/test_mechanical_motion.py
+          tests/projects/test_mechanism_benchmarks.py
+          tests/projects/test_generation_mode_requests.py
+          tests/api/test_progressive_visual_decision.py
+      - name: Run PDF context ingestion tests
+        env:
+          FORMA_DEV_MODE: "true"
+          DATABASE_BACKEND: "sqlite"
+        run: >-
+          python -m pytest -q
+          tests/projects/test_pdf_context.py
+          tests/projects/test_pdf_context_ingestion.py
+          tests/projects/test_context_gathering.py
+          -k pdf

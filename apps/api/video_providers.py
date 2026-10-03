@@ -5,7 +5,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from dotenv import load_dotenv
 
@@ -13,6 +13,7 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 logger = logging.getLogger(__name__)
+Settings = Mapping[str, str]
 
 DEFAULT_GMI_BASE_URL = "https://console.gmicloud.ai"
 VIDEO_MODE_IMAGE_TO_VIDEO = "image-to-video"
@@ -101,24 +102,24 @@ class VideoGenerationResult:
         }
 
 
-def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = config.get(name)
+def _env(name: str, default: Optional[str] = None, settings: Optional[Settings] = None) -> Optional[str]:
+    value = settings.get(name) if settings is not None else config.get(name)
     if value is None:
         return default
     stripped = value.strip()
     return stripped if stripped else default
 
 
-def _first_env(names: List[str], default: Optional[str] = None) -> Optional[str]:
+def _first_env(names: List[str], default: Optional[str] = None, settings: Optional[Settings] = None) -> Optional[str]:
     for name in names:
-        value = _env(name)
+        value = _env(name, settings=settings)
         if value is not None:
             return value
     return default
 
 
-def _env_float(name: str, default: float) -> float:
-    raw_value = _env(name)
+def _env_float(name: str, default: float, settings: Optional[Settings] = None) -> float:
+    raw_value = _env(name, settings=settings)
     if raw_value is None:
         return default
     try:
@@ -175,24 +176,24 @@ def normalize_video_mode(mode: Optional[str]) -> str:
     return VIDEO_MODE_IMAGE_TO_VIDEO
 
 
-def get_default_video_model(mode: str = VIDEO_MODE_IMAGE_TO_VIDEO) -> str:
+def get_default_video_model(mode: str = VIDEO_MODE_IMAGE_TO_VIDEO, settings: Optional[Settings] = None) -> str:
     normalized_mode = normalize_video_mode(mode)
     if normalized_mode == VIDEO_MODE_VIDEO_TO_VIDEO:
-        return _env("GMI_CLOUD_VIDEO_TO_VIDEO_MODEL", DEFAULT_GMI_VIDEO_TO_VIDEO_MODEL) or DEFAULT_GMI_VIDEO_TO_VIDEO_MODEL
-    return _env("GMI_CLOUD_IMAGE_TO_VIDEO_MODEL", DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL) or DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL
+        return _env("GMI_CLOUD_VIDEO_TO_VIDEO_MODEL", DEFAULT_GMI_VIDEO_TO_VIDEO_MODEL, settings) or DEFAULT_GMI_VIDEO_TO_VIDEO_MODEL
+    return _env("GMI_CLOUD_IMAGE_TO_VIDEO_MODEL", DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL, settings) or DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL
 
 
-def get_available_video_model_options(mode: Optional[str] = None) -> List[VideoModelDefinition]:
+def get_available_video_model_options(mode: Optional[str] = None, settings: Optional[Settings] = None) -> List[VideoModelDefinition]:
     image_models = [
-        get_default_video_model(VIDEO_MODE_IMAGE_TO_VIDEO),
+        get_default_video_model(VIDEO_MODE_IMAGE_TO_VIDEO, settings),
         *DEFAULT_GMI_IMAGE_TO_VIDEO_MODELS,
-        *_parse_model_list(_env("GMI_CLOUD_IMAGE_TO_VIDEO_MODELS")),
-        *_parse_model_list(_env("GMI_CLOUD_VIDEO_MODELS")),
+        *_parse_model_list(_env("GMI_CLOUD_IMAGE_TO_VIDEO_MODELS", settings=settings)),
+        *_parse_model_list(_env("GMI_CLOUD_VIDEO_MODELS", settings=settings)),
     ]
     video_models = [
-        get_default_video_model(VIDEO_MODE_VIDEO_TO_VIDEO),
+        get_default_video_model(VIDEO_MODE_VIDEO_TO_VIDEO, settings),
         *DEFAULT_GMI_VIDEO_TO_VIDEO_MODELS,
-        *_parse_model_list(_env("GMI_CLOUD_VIDEO_TO_VIDEO_MODELS")),
+        *_parse_model_list(_env("GMI_CLOUD_VIDEO_TO_VIDEO_MODELS", settings=settings)),
     ]
 
     definitions = [
@@ -205,17 +206,17 @@ def get_available_video_model_options(mode: Optional[str] = None) -> List[VideoM
     return _dedupe_definitions(definitions)
 
 
-def get_available_video_models(mode: Optional[str] = None) -> List[str]:
-    return [definition.id for definition in get_available_video_model_options(mode)]
+def get_available_video_models(mode: Optional[str] = None, settings: Optional[Settings] = None) -> List[str]:
+    return [definition.id for definition in get_available_video_model_options(mode, settings)]
 
 
-def get_available_video_aspect_ratios() -> List[str]:
-    configured = _parse_model_list(_env("GMI_CLOUD_VIDEO_ASPECT_RATIOS"))
+def get_available_video_aspect_ratios(settings: Optional[Settings] = None) -> List[str]:
+    configured = _parse_model_list(_env("GMI_CLOUD_VIDEO_ASPECT_RATIOS", settings=settings))
     ratios = [*DEFAULT_VIDEO_ASPECT_RATIOS, *configured]
     return list(dict.fromkeys(ratio for ratio in ratios if ratio))
 
 
-def normalize_video_aspect_ratio(value: Optional[str]) -> str:
+def normalize_video_aspect_ratio(value: Optional[str], settings: Optional[Settings] = None) -> str:
     raw_value = (value or DEFAULT_VIDEO_ASPECT_RATIO).strip().lower()
     aliases = {
         "landscape": "16:9",
@@ -226,7 +227,7 @@ def normalize_video_aspect_ratio(value: Optional[str]) -> str:
         "square": "1:1",
     }
     normalized = aliases.get(raw_value, raw_value)
-    allowed = get_available_video_aspect_ratios()
+    allowed = get_available_video_aspect_ratios(settings)
     if normalized not in allowed:
         raise ValueError(f"Unsupported video aspect ratio '{value}'. Valid ratios: {', '.join(allowed)}.")
     return normalized
@@ -290,12 +291,13 @@ def _collect_video_urls(value: Any) -> List[str]:
 class GMICloudProvider:
     provider_name = "gmi-cloud"
 
-    def __init__(self) -> None:
-        self.api_key = _first_env(["GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY", "GMI_API_KEY"])
-        self.base_url = (_env("GMI_CLOUD_BASE_URL", DEFAULT_GMI_BASE_URL) or DEFAULT_GMI_BASE_URL).rstrip("/")
-        self.default_model = get_default_video_model()
-        self.requests_path = _env("GMI_CLOUD_REQUESTS_PATH", DEFAULT_GMI_REQUESTS_PATH) or DEFAULT_GMI_REQUESTS_PATH
-        self.timeout_seconds = _env_float("GMI_CLOUD_TIMEOUT_SECONDS", DEFAULT_GMI_TIMEOUT_SECONDS)
+    def __init__(self, settings: Optional[Settings] = None) -> None:
+        self.settings = settings
+        self.api_key = _first_env(["GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY", "GMI_API_KEY"], settings=settings)
+        self.base_url = (_env("GMI_CLOUD_BASE_URL", DEFAULT_GMI_BASE_URL, settings) or DEFAULT_GMI_BASE_URL).rstrip("/")
+        self.default_model = get_default_video_model(settings=settings)
+        self.requests_path = _env("GMI_CLOUD_REQUESTS_PATH", DEFAULT_GMI_REQUESTS_PATH, settings) or DEFAULT_GMI_REQUESTS_PATH
+        self.timeout_seconds = _env_float("GMI_CLOUD_TIMEOUT_SECONDS", DEFAULT_GMI_TIMEOUT_SECONDS, settings)
 
     @property
     def is_configured(self) -> bool:
@@ -312,10 +314,10 @@ class GMICloudProvider:
             "configured": self.is_configured,
             "base_url": self.base_url,
             "default_model": self.default_model,
-            "default_video_to_video_model": get_default_video_model(VIDEO_MODE_VIDEO_TO_VIDEO),
-            "models": get_available_video_models(),
-            "model_options": [model.response_metadata() for model in get_available_video_model_options()],
-            "aspect_ratios": get_available_video_aspect_ratios(),
+            "default_video_to_video_model": get_default_video_model(VIDEO_MODE_VIDEO_TO_VIDEO, self.settings),
+            "models": get_available_video_models(settings=self.settings),
+            "model_options": [model.response_metadata() for model in get_available_video_model_options(settings=self.settings)],
+            "aspect_ratios": get_available_video_aspect_ratios(self.settings),
             "default_aspect_ratio": DEFAULT_VIDEO_ASPECT_RATIO,
             "reason": reason,
         }
@@ -394,7 +396,7 @@ class GMICloudProvider:
                 image_key: image,
                 "prompt": prompt,
                 "duration": str(duration),
-                "aspect_ratio": normalize_video_aspect_ratio(aspect_ratio),
+                "aspect_ratio": normalize_video_aspect_ratio(aspect_ratio, self.settings),
                 "sound": sound or "off",
             },
         }
@@ -417,7 +419,7 @@ class GMICloudProvider:
                 "reference_videos": [video],
                 "prompt": prompt,
                 "duration": str(duration),
-                "aspect_ratio": normalize_video_aspect_ratio(aspect_ratio),
+                "aspect_ratio": normalize_video_aspect_ratio(aspect_ratio, self.settings),
                 "sound": sound or "off",
             }
             payload = {
@@ -432,7 +434,7 @@ class GMICloudProvider:
             source_key: video,
             "prompt": prompt,
             "duration": str(duration),
-            "aspect_ratio": normalize_video_aspect_ratio(aspect_ratio),
+            "aspect_ratio": normalize_video_aspect_ratio(aspect_ratio, self.settings),
             "sound": sound or "off",
         }
 

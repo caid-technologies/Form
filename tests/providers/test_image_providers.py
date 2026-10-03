@@ -20,6 +20,36 @@ from forma_core.image_providers import (
 
 
 class ImageProviderRoutingTests(unittest.TestCase):
+    def test_mechanical_render_preserves_geometry_and_does_not_seed_electronics(self) -> None:
+        ir = SimpleNamespace(
+            overview=SimpleNamespace(title="Rounded gear", description="A plain gear with 36 rounded teeth and a keyed bore."),
+            mechanical=SimpleNamespace(physical_form="One flat gear", cad_operations=[{"kind": "cylinder", "radius_mm": 25}],
+                mechanism_benchmark={"kind": "spur_gear_pair", "driver_teeth": 36, "driven_teeth": 72},
+                fabrication_details=["Bare nylon surfaces; no decorative panels"]),
+            components=[], nets=[], constraints=["Strictly mechanical"],
+            assembly_metadata={"source_prompt": "Make a plain nylon gear"},
+        )
+        request = "Use a neutral studio background. " * 12 + "Preserve the keyed bore and rounded tooth profile."
+        for prompt in [build_project_image_prompt(request, ir), *[view["prompt"] for view in build_project_image_sequence_prompts(request, ir)]]:
+            self.assertIn("36 rounded teeth", prompt)
+            self.assertIn('"driver_teeth":36', prompt)
+            self.assertIn('"radius_mm":25', prompt)
+            self.assertIn("Bare nylon surfaces", prompt)
+            self.assertIn("Preserve the keyed bore and rounded tooth profile.", prompt)
+            self.assertIn("purely mechanical design must remain purely mechanical", prompt)
+            self.assertIn("Do not add circuit boards", prompt)
+            self.assertNotIn("maker electronics build", prompt)
+            self.assertNotIn("PCB or component carrier", prompt)
+
+    def test_electronic_render_keeps_explicit_parts_without_inventing_additions(self) -> None:
+        ir = SimpleNamespace(overview=SimpleNamespace(title="Monitor", description="One board and one display"),
+            components=[SimpleNamespace(ref_des="U1", name="ESP32", category="Microcontroller"),
+                        SimpleNamespace(ref_des="DS1", name="OLED display", category="Display")])
+        prompt = build_project_image_prompt("Show the saved monitor", ir)
+        self.assertIn("U1 ESP32", prompt)
+        self.assertIn("DS1 OLED display", prompt)
+        self.assertIn("unless they are explicitly part of this design", prompt)
+
     def test_project_image_prompts_keep_measurements_and_text_out_of_rendered_pixels(self) -> None:
         ir = SimpleNamespace(
             overview=SimpleNamespace(title="Pocket monitor", description="A compact sensor monitor"),

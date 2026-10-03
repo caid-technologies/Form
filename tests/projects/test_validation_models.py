@@ -15,6 +15,44 @@ from forma_core.validation import validate_circuit
 
 
 class ValidationAndModelTests(unittest.TestCase):
+    def test_pinless_netless_electronics_cannot_pass(self) -> None:
+        components = [ComponentInstance(
+            ref_des=f"U{index}", name=f"Module {index}", category="Module", rationale="Circuit module",
+        ) for index in range(1, 10)]
+        issues = validate_circuit(components, [])
+        self.assertEqual(9, sum(issue.category == "Missing Pin Definitions" for issue in issues))
+        self.assertTrue(any(issue.category == "Missing Electrical Nets" for issue in issues))
+        self.assertTrue(all(issue.severity == "CRITICAL" for issue in issues))
+
+    def test_declared_passive_pins_still_require_a_netlist(self) -> None:
+        component = ComponentInstance(
+            ref_des="R1", category="Passives", rationale="Load",
+            pins=[PinDefinition(pin_id="1", name="Terminal", pin_type="Passive")],
+        )
+        self.assertIn("Missing Electrical Nets", {issue.category for issue in validate_circuit([component], [])})
+
+    def test_pinless_component_is_not_hidden_by_other_components_nets(self) -> None:
+        component = ComponentInstance(ref_des="U1", category="Sensor", rationale="Sense")
+        net = ConnectionNet(net_id="N1", name="Placeholder", net_type="Digital")
+        self.assertIn("Missing Pin Definitions", {issue.category for issue in validate_circuit([component], [net])})
+
+    def test_empty_draft_and_mechanical_only_bom_remain_allowed(self) -> None:
+        self.assertEqual([], validate_circuit([], []))
+        for category in ("Mechanical", "Enclosure", "Fastener", "3D Print"):
+            with self.subTest(category=category):
+                component = ComponentInstance(ref_des="M1", category=category, rationale="Housing")
+                self.assertEqual([], validate_circuit([component], []))
+
+    def test_module_with_external_terminals_does_not_require_internal_circuitry(self) -> None:
+        components = [ComponentInstance(
+            ref_des=ref, category=category, rationale="USB power",
+            pins=[PinDefinition(pin_id="VBUS", name="USB power", pin_type="Power", voltage=5)],
+        ) for ref, category in (("U1", "Module"), ("J1", "Connector"))]
+        net = ConnectionNet(net_id="USB", name="USB power", net_type="Power", pins=[
+            PinReference(ref_des=component.ref_des, pin_id="VBUS") for component in components
+        ])
+        self.assertEqual([], validate_circuit(components, [net]))
+
     def test_generation_request_strips_optional_runtime_selector_fields(self) -> None:
         request = GenerateProjectRequest(
             prompt="plant watering monitor",

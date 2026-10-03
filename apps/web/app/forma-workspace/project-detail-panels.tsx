@@ -2,15 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import {
   AlertTriangle,
   Battery,
   Box,
   CheckCircle,
-  ChevronDown,
   Cpu,
   Database,
-  Download,
   ExternalLink,
   GitBranch,
   Monitor,
@@ -63,6 +62,10 @@ export function OverviewPanel({
   systemArchitecture,
   showModelName = false,
   showImageSection = true,
+  canManageProgressiveReview = false,
+  visualDecisionBusy = null,
+  visualDecisionError = null,
+  onVisualDecision,
 }: {
   title: string;
   description: string;
@@ -73,13 +76,30 @@ export function OverviewPanel({
   systemArchitecture?: Record<string, any> | null;
   showModelName?: boolean;
   showImageSection?: boolean;
+  canManageProgressiveReview?: boolean;
+  visualDecisionBusy?: "approve" | "revise" | "continue_to_cad" | null;
+  visualDecisionError?: string | null;
+  onVisualDecision?: (decision: "approve" | "revise" | "continue_to_cad", feedback?: string) => void | Promise<void>;
 }) {
   const imageKey = imageCandidates.map((candidate) => candidate.src).join("|");
   const [imageIndex, setImageIndex] = useState(0);
+  const [revisionFeedback, setRevisionFeedback] = useState("");
 
   useEffect(() => {
     setImageIndex(0);
   }, [imageKey]);
+
+  const visualGate = metadata?.design_lifecycle?.visual_gate || {};
+  const visualArtifactId = String(visualGate.visual_artifact_id || metadata.system_render_artifact_id || "");
+  const visualApprovalStatus = String(visualGate.status || metadata.visual_approval_status || "not_requested");
+  const persistedVisualFeedback = String(visualGate.feedback || metadata.visual_approval_feedback || "");
+  const progressiveReviewVisible = metadata.generation_mode === "progressive" && Boolean(visualArtifactId);
+  const cadStatus = String(metadata?.cad_generation?.status || "");
+  const cadComplete = cadStatus === "succeeded" || cadStatus === "provided";
+
+  useEffect(() => {
+    setRevisionFeedback(persistedVisualFeedback);
+  }, [persistedVisualFeedback, visualArtifactId]);
 
   const productImages = imageCandidates.filter((candidate) => !isHardwareReferenceCandidate(candidate));
   const referenceImages = imageCandidates.filter(isHardwareReferenceCandidate);
@@ -96,9 +116,12 @@ export function OverviewPanel({
         {showProductImage && (
           <div className="relative overflow-hidden rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface-muted)]">
             {activeImage ? (
-              <img
+              <Image
                 src={activeImage.src}
                 alt={activeImage.label}
+                width={1}
+                height={1}
+                unoptimized
                 onError={() => setImageIndex((current) => current + 1)}
                 className="h-[280px] w-full object-cover object-center sm:h-[380px]"
               />
@@ -126,11 +149,111 @@ export function OverviewPanel({
                     : "border-[var(--forma-border)] bg-[var(--forma-surface)] text-[var(--forma-text-muted)] hover:border-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]"
                 }`}
               >
-                <img src={candidate.src} alt={candidate.label} className="h-20 w-full rounded-md bg-[var(--forma-surface-muted)] object-cover" />
+                <Image
+                  src={candidate.src}
+                  alt={candidate.label}
+                  width={1}
+                  height={1}
+                  unoptimized
+                  className="h-20 w-full rounded-md bg-[var(--forma-surface-muted)] object-cover"
+                />
                 <div className="mt-2 truncate text-[10px] font-medium">{candidate.label}</div>
               </button>
             ))}
           </div>
+        )}
+
+        {progressiveReviewVisible && (
+          <section data-testid="progressive-visual-review" className="mt-4 rounded-xl border border-[rgb(var(--forma-cyan-rgb)/0.32)] bg-[rgb(var(--forma-cyan-rgb)/0.06)] p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--forma-cyan-rgb))]">Progressive concept review</div>
+                <h2 className="mt-2 text-sm font-semibold text-[var(--forma-text-strong)]">
+                  {visualApprovalStatus === "approved"
+                    ? cadComplete ? "Concept approved and CAD is ready" : "Concept approved"
+                    : visualApprovalStatus === "rejected"
+                      ? "Revision requested"
+                      : "Review the whole-system concept before CAD"}
+                </h2>
+                <p className="mt-2 max-w-2xl text-xs leading-5 text-[var(--forma-text-secondary)]">
+                  {visualApprovalStatus === "approved"
+                    ? cadComplete
+                      ? "The approved concept has continued through the CAD stage."
+                      : "The visual is accepted. Continue when you are ready to spend the higher-cost CAD step."
+                    : visualApprovalStatus === "rejected"
+                      ? "Your feedback is saved. Describe the revision in chat to regenerate only the affected Progressive artifacts."
+                      : "Approve the concept, or record what should change before generating component and assembly CAD."}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">
+                {visualApprovalStatus.replaceAll("_", " ")}
+              </span>
+            </div>
+
+            {!cadComplete && visualApprovalStatus !== "approved" && (
+              <div className="mt-4">
+                <label htmlFor="progressive-revision-feedback" className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
+                  Revision feedback
+                </label>
+                <textarea
+                  id="progressive-revision-feedback"
+                  value={revisionFeedback}
+                  onChange={(event) => setRevisionFeedback(event.target.value)}
+                  disabled={Boolean(visualDecisionBusy) || !canManageProgressiveReview}
+                  placeholder="Example: make the enclosure lower, move the power connector to the rear, and keep the drivetrain unchanged."
+                  className="mt-2 min-h-[82px] w-full resize-y rounded-lg border border-[var(--forma-border)] bg-[var(--forma-page)] px-3 py-2.5 text-xs leading-5 text-[var(--forma-text-body)] outline-none transition focus:border-[rgb(var(--forma-cyan-rgb)/0.6)] disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </div>
+            )}
+
+            {persistedVisualFeedback && visualApprovalStatus === "rejected" && (
+              <div className="mt-3 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 py-2.5 text-xs leading-5 text-[var(--forma-text-secondary)]">
+                <span className="font-semibold text-[var(--forma-text-strong)]">Saved feedback:</span> {persistedVisualFeedback}
+              </div>
+            )}
+
+            {visualDecisionError && (
+              <div role="alert" className="mt-3 rounded-lg border border-[rgb(var(--forma-red-rgb)/0.35)] bg-[rgb(var(--forma-red-rgb)/0.08)] px-3 py-2 text-xs text-[rgb(var(--forma-red-rgb))]">
+                {visualDecisionError}
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {visualApprovalStatus !== "approved" && (
+                <button
+                  type="button"
+                  onClick={() => void onVisualDecision?.("approve")}
+                  disabled={!canManageProgressiveReview || Boolean(visualDecisionBusy)}
+                  className="inline-flex items-center gap-2 rounded-md bg-[rgb(var(--forma-cyan-rgb))] px-3 py-2 text-xs font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  {visualDecisionBusy === "approve" ? "Approving…" : "Approve concept"}
+                </button>
+              )}
+              {visualApprovalStatus !== "approved" && (
+                <button
+                  type="button"
+                  onClick={() => void onVisualDecision?.("revise", revisionFeedback.trim())}
+                  disabled={!canManageProgressiveReview || Boolean(visualDecisionBusy) || !revisionFeedback.trim()}
+                  className="inline-flex items-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 py-2 text-xs font-semibold text-[var(--forma-text-strong)] transition hover:border-[var(--forma-text-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Sliders className="h-4 w-4" />
+                  {visualDecisionBusy === "revise" ? "Saving…" : "Revise"}
+                </button>
+              )}
+              {visualApprovalStatus === "approved" && !cadComplete && (
+                <button
+                  type="button"
+                  onClick={() => void onVisualDecision?.("continue_to_cad")}
+                  disabled={!canManageProgressiveReview || Boolean(visualDecisionBusy)}
+                  className="inline-flex items-center gap-2 rounded-md bg-[var(--forma-text-strong)] px-3 py-2 text-xs font-semibold text-[var(--forma-page)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Wrench className="h-4 w-4" />
+                  {visualDecisionBusy === "continue_to_cad" ? "Generating CAD…" : "Continue to CAD"}
+                </button>
+              )}
+            </div>
+          </section>
         )}
 
         {showHardwareReference && (
@@ -139,10 +262,13 @@ export function OverviewPanel({
             <p className="mt-1 text-xs leading-5 text-[var(--forma-text-secondary)]">The image you shared for this project.</p>
             <div className={`mt-3 grid gap-2 ${referenceImages.length > 1 ? "sm:grid-cols-2" : ""}`}>
               {referenceImages.map((candidate) => (
-                <img
+                <Image
                   key={candidate.src}
                   src={candidate.src}
                   alt={candidate.label}
+                  width={1}
+                  height={1}
+                  unoptimized
                   className="h-44 w-full rounded-lg bg-[var(--forma-surface-muted)] object-cover object-center sm:h-52"
                 />
               ))}
@@ -483,6 +609,8 @@ export function MechanicalPanel({
   features,
   metadata,
   mechanical,
+  cadModel,
+  systemArchitecture,
 }: {
   toggles: Record<string, boolean>;
   setToggles: (value: any) => void;
@@ -492,19 +620,27 @@ export function MechanicalPanel({
   features: string[];
   metadata: Record<string, any>;
   mechanical: Record<string, any>;
+  cadModel?: Record<string, any> | null;
+  systemArchitecture?: Record<string, unknown> | null;
 }) {
   const visualSpec = metadata.product_visual_spec || {};
   const dimensions = mechanical.render_dimensions || visualSpec.external_dimensions_mm || metadata.render_dimensions || { x_mm: 100, y_mm: 60, z_mm: 36 };
   const placements = mechanical.component_placements || metadata.component_placements || [];
   const relationships = mechanical.spatial_relationships || metadata.spatial_relationships || [];
+  const kinematics = cadModel && typeof cadModel === "object" ? cadModel.kinematics : null;
+  const compliantPreview = cadModel && typeof cadModel === "object" ? cadModel.compliant_preview : null;
 
   return (
     <div className="relative h-full min-h-[420px] w-full overflow-hidden bg-[var(--forma-page)]">
       <MechanicalScene
+        systemArchitecture={systemArchitecture}
         dimensions={dimensions}
         components={components}
         placements={placements}
         relationships={relationships}
+        kinematics={kinematics}
+        articulatedBodies={cadModel?.articulated_bodies}
+        compliantPreview={compliantPreview}
         features={features}
         toggles={toggles}
         setToggles={setToggles}
@@ -544,98 +680,16 @@ function issueSeverityTone(severity: unknown) {
 export function AssemblyPanel({
   assembly,
   issues,
-  onDownloadJSON,
-  onDownloadMarkdown,
-  canDownloadAssets,
 }: {
   assembly: any[];
   issues: any[];
-  onDownloadJSON: () => void;
-  onDownloadMarkdown: () => void;
-  canDownloadAssets: boolean;
 }) {
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
-  const exportButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!exportMenuOpen) return;
-
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      if (!exportMenuRef.current?.contains(event.target as Node)) setExportMenuOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setExportMenuOpen(false);
-      exportButtonRef.current?.focus();
-    };
-
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutsideClick);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [exportMenuOpen]);
-
   return (
     <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[var(--forma-page)] px-4 py-5 text-[var(--forma-text)] sm:px-5 sm:py-6">
       <div className="mx-auto min-w-0 max-w-[890px]">
-        <div className="mb-6 flex flex-col gap-4 border-b border-[var(--forma-border)] pb-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="break-words text-xl font-semibold tracking-tight text-[var(--forma-text-strong)]">Build Instructions</h2>
-            <p className="mt-2 text-xs text-[var(--forma-text-secondary)]">Sequential assembly from the generated hardware graph.</p>
-          </div>
-          <div ref={exportMenuRef} className="relative shrink-0">
-            <button
-              ref={exportButtonRef}
-              type="button"
-              onClick={() => setExportMenuOpen((open) => !open)}
-              disabled={!canDownloadAssets}
-              aria-haspopup="menu"
-              aria-expanded={exportMenuOpen}
-              aria-controls="docs-export-menu"
-              title={canDownloadAssets ? "Choose an export format" : "Files are available only on projects you generated."}
-              className="flex items-center justify-center gap-2 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 py-2 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[var(--forma-surface)] disabled:hover:text-[var(--forma-text-body)]"
-            >
-              <Download className="h-4 w-4" />
-              Export
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
-            </button>
-
-            {exportMenuOpen && (
-              <div
-                id="docs-export-menu"
-                role="menu"
-                className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-1 shadow-[var(--forma-card-shadow)]"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setExportMenuOpen(false);
-                    onDownloadJSON();
-                  }}
-                  className="block w-full rounded-lg px-3 py-3 text-left text-[var(--forma-text-strong)] transition-colors hover:bg-[var(--forma-surface-muted)]"
-                >
-                  <span className="block text-xs font-medium">Project JSON</span>
-                  <span className="mt-1 block text-[10px] font-medium text-[var(--forma-text-muted)]">Full project data (.json)</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setExportMenuOpen(false);
-                    onDownloadMarkdown();
-                  }}
-                  className="block w-full rounded-lg border-t border-[var(--forma-border)] px-3 py-3 text-left text-[var(--forma-text-strong)] transition-colors hover:bg-[var(--forma-surface-muted)]"
-                >
-                  <span className="block text-xs font-medium">Markdown</span>
-                  <span className="mt-1 block text-[10px] font-medium text-[var(--forma-text-muted)]">Build instructions and safety audit (.md)</span>
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="mb-6 border-b border-[var(--forma-border)] pb-5">
+          <h2 className="break-words text-xl font-semibold tracking-tight text-[var(--forma-text-strong)]">Build Instructions</h2>
+          <p className="mt-2 text-xs text-[var(--forma-text-secondary)]">Sequential assembly from the generated hardware graph.</p>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[1fr_280px]">
@@ -650,7 +704,7 @@ export function AssemblyPanel({
                     <h3 className="text-sm font-semibold text-[var(--forma-text-strong)]">{step.title}</h3>
                     <p className="mt-3 break-words text-sm leading-7 text-[var(--forma-text-body)]">{step.description}</p>
                     {step.danger_flag && (
-                      <div className="mt-4 flex gap-2 rounded-lg border border-[rgb(var(--forma-red-rgb)/0.35)] bg-[rgb(var(--forma-red-rgb)/0.1)] p-3 text-sm leading-6 text-[rgb(var(--forma-red-rgb))]">
+                      <div className="mt-4 flex gap-2 rounded-lg border border-[rgb(var(--forma-yellow-rgb)/0.35)] bg-[rgb(var(--forma-yellow-rgb)/0.1)] p-3 text-sm leading-6 text-[rgb(var(--forma-yellow-rgb))]">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                         <span className="min-w-0 break-words">{step.danger_message || "Pay close attention to safety constraints during this stage."}</span>
                       </div>
@@ -707,6 +761,7 @@ export function AssemblyPanel({
     </div>
   );
 }
+
 
 export function PartsSidebar({ components, issues, isValid }: { components: any[]; issues: any[]; isValid: boolean }) {
   return (

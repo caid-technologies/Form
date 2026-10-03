@@ -1,0 +1,93 @@
+name: Chat project workspace UI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - apps/web/**
+      - .github/workflows/chat-project-workspace.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workspace-ui-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  production-build:
+    name: Production frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Build the production frontend
+        run: npm run build
+
+  workspace-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install locked application and browser dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Typecheck the full frontend
+        id: typecheck
+        continue-on-error: true
+        run: npx --no-install tsc --noEmit
+      - name: Check modified UI modules
+        id: lint
+        continue-on-error: true
+        run: npx --no-install eslint app/forma-workspace/chat-project-layout.tsx app/forma-workspace/conversation-message-list.tsx app/forma-workspace/home-chat-view.tsx app/forma-workspace/chat-attachments.tsx app/forma-workspace/cad-model-panel.tsx app/forma-workspace/project-history.tsx app/forma-workspace/project-revision-preview.tsx lib/chat-project-layout.ts lib/project-history.ts
+      - name: Run layout and main-entry-point regression tests
+        run: node --experimental-strip-types --test test/chat-project-layout.test.ts test/chat-project-integration.test.ts test/project-chat-history.test.ts test/project-history.test.ts test/opencode-turn.test.ts test/opencode-polling.test.ts
+      - name: Run OpenCAD motion preview regression tests
+        run: node --experimental-strip-types --test test/opencad-motion-preview.test.ts test/articulated-motion.test.ts
+      - name: Verify locked browser fixture tooling
+        run: node -e "console.log('esbuild', require('esbuild').version); console.log(require.resolve('@playwright/test'))"
+      - name: Install Chromium
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Test layout, focus, resizing and active viewer count
+        id: layout
+        continue-on-error: true
+        run: npx --no-install playwright test --config playwright.workspace.config.mjs --output=workspace-test-results
+      - name: Test the real main OpenCode page with mocked backend responses
+        id: opencode
+        continue-on-error: true
+        run: npx --no-install playwright test --config playwright.integrity.config.ts
+      - name: Fail on any type, lint or browser regression
+        if: always() && (steps.typecheck.outcome == 'failure' || steps.lint.outcome == 'failure' || steps.layout.outcome == 'failure' || steps.opencode.outcome == 'failure')
+        run: exit 1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: main-chat-project-workspace-results
+          path: |
+            apps/web/test-results/
+            apps/web/workspace-test-results/
+            apps/web/workspace-playwright-report/
+          retention-days: 7

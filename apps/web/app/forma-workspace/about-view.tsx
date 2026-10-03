@@ -106,6 +106,10 @@ export default function AboutView() {
             description="Forma helps builders turn early hardware ideas into project plans with parts, wiring, validation, build notes, and generated artifacts."
             actions={
               <>
+                <Link href="/install/opencode" className={BUTTON_OUTLINE_CLASS}>
+                  OpenCode setup
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
                 <span className={BUTTON_OUTLINE_CLASS}>
                   <Mail className="h-3.5 w-3.5" />
                   <span className="select-all">{legalContactEmail}</span>

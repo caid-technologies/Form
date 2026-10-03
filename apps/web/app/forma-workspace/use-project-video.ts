@@ -84,6 +84,7 @@ export type UseProjectVideoOptions<ProjectIR = unknown> = {
 export type UseProjectVideoResult = {
   projectId: string | null;
   readOnly: boolean;
+  canOpenAssets: boolean;
   models: VideoModelOption[];
   modelsLoading: boolean;
   modelsError: string | null;
@@ -1301,6 +1302,7 @@ export function useProjectVideo<ProjectIR = unknown>({
   return {
     projectId,
     readOnly: !canManageProject,
+    canOpenAssets: stateScopeMatches && canLoadProjectVideos,
     models,
     modelsLoading,
     modelsError,

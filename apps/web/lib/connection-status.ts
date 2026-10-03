@@ -1,15 +1,17 @@
 export type ServerConnectionStatus = "connected" | "disconnected";
 
-export type WorkspaceStatusTone = "ok" | "error";
+export type WorkspaceStatusTone = "ok" | "authoring" | "delivered" | "error";
 
 export type WorkspaceStatusReason =
   | "stable"
+  | "authoring"
+  | "delivered"
   | "disconnected"
   | "auth"
   | "run-failure"
   | "timeout";
 
-export type AgentOperationStatus = "idle" | "loading" | "success" | "error" | "cancelled";
+export type AgentOperationStatus = "idle" | "loading" | "success" | "error" | "cancelled" | "handed-off" | "interrupted";
 
 export type AgentOperationSignal = {
   status?: AgentOperationStatus;
@@ -22,6 +24,8 @@ export type WorkspaceStatusSignals = {
   connection: ServerConnectionStatus;
   authError?: boolean;
   agent?: AgentOperationSignal | null;
+  authoring?: boolean;
+  delivered?: boolean;
   nowMs?: number;
   staleAfterMs?: number;
 };
@@ -75,6 +79,8 @@ export function workspaceStatusBadge({
   connection,
   authError = false,
   agent = null,
+  authoring = false,
+  delivered = false,
   nowMs = Date.now(),
   staleAfterMs = WORKSPACE_STATUS_STALE_AFTER_MS,
 }: WorkspaceStatusSignals): WorkspaceStatusPresentation {
@@ -95,6 +101,12 @@ export function workspaceStatusBadge({
   }
   if (connection !== "connected") {
     return present("error", "disconnected", "Disconnected", true);
+  }
+  if (authoring && delivered) {
+    return present("delivered", "delivered", "Delivered — agent work is on-chain", false);
+  }
+  if (authoring) {
+    return present("authoring", "authoring", "Authoring — Forma Agent is building this project", true);
   }
 
   return present(

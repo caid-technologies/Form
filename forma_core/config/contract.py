@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
 from forma_core.agents.workflows import list_workflows
@@ -79,7 +79,10 @@ def _llm_option(provider: str, model: str, selected: LLMRuntimeConfig) -> Dict[s
     }
 
 
-def _resolved_llm_options(runtime: LLMRuntimeConfig) -> list[Dict[str, Any]]:
+def _resolved_llm_options(
+    runtime: LLMRuntimeConfig,
+    settings: Optional[Mapping[str, str]] = None,
+) -> list[Dict[str, Any]]:
     configured = set(runtime.configured_providers or [])
     allowed = set(runtime.allowed_providers or configured)
     providers = _ordered_unique([runtime.provider, *sorted(configured)])
@@ -89,7 +92,7 @@ def _resolved_llm_options(runtime: LLMRuntimeConfig) -> list[Dict[str, Any]]:
         if provider == "simulation" or provider not in configured or provider not in allowed:
             continue
         try:
-            provider_runtime = resolve_llm_runtime_config(provider_name=provider)
+            provider_runtime = resolve_llm_runtime_config(provider_name=provider, settings=settings)
         except LLMProviderConfigError:
             continue
         models = _ordered_unique([
@@ -108,16 +111,18 @@ def resolve_runtime_contract(
     image_config: Optional[Dict[str, Any]] = None,
     workflows: Optional[list[Dict[str, Any]]] = None,
     signup_storage: Optional[str] = None,
+    settings: Optional[Mapping[str, str]] = None,
+    authoring_access: bool = False,
 ) -> Dict[str, Any]:
     """Resolve all client-facing generation decisions from the active environment."""
-    resolved_llm_config = llm_config or HardwarePipelineOrchestrator().get_debug_config()
-    runtime = resolve_llm_runtime_config()
-    llm_options = _resolved_llm_options(runtime)
+    resolved_llm_config = llm_config or HardwarePipelineOrchestrator(settings=settings).get_debug_config(raise_on_preflight=False)
+    runtime = resolve_llm_runtime_config(settings=settings)
+    llm_options = _resolved_llm_options(runtime, settings=settings)
     selected_llm = next((option for option in llm_options if option["selected"]), None)
     if selected_llm is None and runtime.provider != "simulation":
         selected_llm = _llm_option(runtime.provider, runtime.model, runtime)
 
-    resolved_image = image_config or get_image_output_debug_config()
+    resolved_image = image_config or get_image_output_debug_config(settings=settings)
     image_capable = bool(resolved_image.get("request_capable"))
     resolved_workflows = workflows if workflows is not None else list_workflows()
     workflow_ids = {str(item.get("id")) for item in resolved_workflows if isinstance(item, dict)}
@@ -129,7 +134,11 @@ def resolve_runtime_contract(
             else str(resolved_workflows[0].get("id") or "default")
         )
 
-    deployment = deployment_runtime_config(resolved_llm_config, signup_storage=signup_storage)
+    deployment = deployment_runtime_config(
+        resolved_llm_config,
+        signup_storage=signup_storage,
+        authoring_access=authoring_access,
+    )
     llm_ready = bool(resolved_llm_config.get("live_generation_enabled"))
     llm_reason = resolved_llm_config.get("validation_error")
     image_reason = resolved_image.get("reason")

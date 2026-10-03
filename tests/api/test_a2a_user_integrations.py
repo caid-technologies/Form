@@ -9,13 +9,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from apps.api import a2a
+from apps.api.auth import UserContext
 from forma_core import user_integrations
 from forma_core.image_providers import build_image_provider
 from forma_core.user_integrations import UserIntegrationStore
 
 
 class A2AUserIntegrationTests(unittest.TestCase):
-    def test_persist_updated_project_ir_creates_missing_project_record(self) -> None:
+    def test_persist_updated_project_ir_skips_legacy_projection_for_authenticated_owner(self) -> None:
         project_id = "fd54de37-2fbb-485a-92e4-8bfaf4a2f08c"
 
         class FakeIR:
@@ -33,8 +34,8 @@ class A2AUserIntegrationTests(unittest.TestCase):
                     "components": [],
                 }
 
-        with patch.object(a2a, "update_generated_project_hardware_ir", return_value=False) as update_project, patch.object(
-            a2a, "save_generated_project"
+        with patch.object(a2a, "refresh_legacy_project_projection", return_value=False) as update_project, patch.object(
+            a2a, "persist_legacy_project_projection"
         ) as save_project:
             a2a._persist_updated_project_ir(
                 FakeIR(),
@@ -42,21 +43,14 @@ class A2AUserIntegrationTests(unittest.TestCase):
                 owner_user_id="user_123",
             )
 
-        update_project.assert_called_once()
-        self.assertEqual(project_id, update_project.call_args.args[0])
-        save_project.assert_called_once()
-        save_kwargs = save_project.call_args.kwargs
-        self.assertEqual(project_id, save_kwargs["project_id"])
-        self.assertEqual("Low Voltage Desk Lamp", save_kwargs["title"])
-        self.assertEqual("desk lamp", save_kwargs["prompt"])
-        self.assertEqual("chat_123", save_kwargs["chat_id"])
-        self.assertEqual("user_123", save_kwargs["owner_user_id"])
-        self.assertEqual("public", save_kwargs["visibility"])
+        update_project.assert_not_called()
+        save_project.assert_not_called()
 
     def test_generation_response_applies_owner_image_provider_before_images(self) -> None:
         observed: dict[str, object] = {}
 
         def fake_generate_project_with_workflow(*_args, **_kwargs):
+            self.assertFalse(_kwargs["persist_project"])
             return SimpleNamespace(
                 assembly_metadata={},
                 constraints=[],
@@ -75,7 +69,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
             )
 
         def fake_attach_product_image(*_args, **_kwargs):
-            provider = build_image_provider(force_enabled=True)
+            provider = build_image_provider(force_enabled=True, settings=_kwargs["settings"])
             observed.update(provider.get_debug_config())
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -126,7 +120,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
         observed: dict[str, object] = {}
 
         def fake_generate_project_with_workflow(*_args, **_kwargs):
-            user_integrations.apply_user_integrations_to_environment()
+            self.assertFalse(_kwargs["persist_project"])
             return SimpleNamespace(
                 assembly_metadata={},
                 constraints=[],
@@ -145,7 +139,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
             )
 
         def fake_attach_product_image(*_args, **_kwargs):
-            provider = build_image_provider(force_enabled=True)
+            provider = build_image_provider(force_enabled=True, settings=_kwargs["settings"])
             observed.update(provider.get_debug_config())
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -196,7 +190,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
         )
 
         def fake_build_generation_response(*_args, **_kwargs):
-            provider = build_image_provider(force_enabled=True)
+            provider = build_image_provider(force_enabled=True, settings=_kwargs["settings"])
             observed.update(provider.get_debug_config())
             return {"ok": True}
 
@@ -229,7 +223,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
                     "OPENAI_IMAGE_MODEL": "gpt-image-2",
                 },
                 clear=True,
-            ), patch.object(UserIntegrationStore, "for_user", return_value=store), patch.object(
+            ), patch.object(UserIntegrationStore, "for_user", return_value=store) as for_user, patch.object(
                 a2a, "build_generation_response", side_effect=fake_build_generation_response
             ), patch.object(
                 a2a.asyncio, "to_thread", side_effect=run_to_thread_inline
@@ -241,8 +235,15 @@ class A2AUserIntegrationTests(unittest.TestCase):
                             {
                                 "prompt": "test",
                                 "generate_image": True,
-                                "owner_user_id": "user_123",
+                                "owner_user_id": "attacker-user",
                             },
+                            UserContext(
+                                provider="test",
+                                subject="user_123",
+                                owner_user_id="user_123",
+                                is_authenticated=True,
+                                is_admin=False,
+                            ),
                         )
                     )
                 finally:
@@ -251,6 +252,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
                     user_integrations._APPLIED_ENV_VALUES.clear()
                     user_integrations._ORIGINAL_ENV_VALUES.clear()
 
+        for_user.assert_called_once_with("user_123")
         self.assertEqual("huggingface", observed["provider"])
         self.assertEqual("black-forest-labs/FLUX.1-schnell", observed["model_name"])
         self.assertEqual("fal-ai", observed["inference_provider"])

@@ -42,6 +42,8 @@ class ContextBuildDispatcher:
         project_id: str,
         owner_user_id: str,
         conversation_id: str,
+        *,
+        generation_mode: str = "regular",
     ) -> tuple[ContextBuildExecution, ProjectWorkflow]:
         readiness = evaluate_project_readiness(project_id, owner_user_id)
         mode = BuildMode.BUILD if readiness.status == ReadinessStatus.READY else BuildMode.BUILD_ANYWAY
@@ -55,7 +57,11 @@ class ContextBuildDispatcher:
             idempotency_key=f"conversation-build:{conversation_id}",
             resolve_unanswered_questions=True,
         )
-        plan = create_project_generation_plan(outcome.build, owner_user_id)
+        plan = create_project_generation_plan(
+            outcome.build,
+            owner_user_id,
+            generation_mode=generation_mode,
+        )
         job_id = next(iter(plan.jobs))
         if plan.status.value == "planned" and not self.requires_request_bound_execution():
             self._launch(plan.plan_id, owner_user_id)

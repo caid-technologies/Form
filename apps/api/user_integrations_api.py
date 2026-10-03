@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from forma_core.user_integrations import (
     UserIntegrationStore,
-    apply_user_integrations_to_environment,
+    resolve_user_integration_settings,
     default_integration_store,
     integration_status_payload,
 )
@@ -244,7 +244,7 @@ def test_image_model(
 
     store = _store_for_context(user_context)
     try:
-        apply_user_integrations_to_environment(store, fail_open=False)
+        settings = resolve_user_integration_settings(store, fail_open=False)
     except Exception as exc:
         raise _unexpected_storage_error(
             operation="image_model_test_load",
@@ -253,7 +253,7 @@ def test_image_model(
             exc=exc,
         ) from exc
 
-    provider = build_image_provider(force_enabled=True)
+    provider = build_image_provider(force_enabled=True, settings=settings)
     config = redact_debug_value(provider.get_debug_config())
     actual_provider = str(getattr(provider, "provider_name", "") or "")
     actual_model = str(getattr(provider, "model_name", "") or "")

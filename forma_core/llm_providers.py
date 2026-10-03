@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 from forma_core.config import config
+from forma_core.config.parti import resolve_parti_model
 from forma_core.vertex_auth import build_vertex_credentials
 import socket
 import time
@@ -9,11 +10,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from dotenv import load_dotenv
 
 from forma_core.runtime import forma_dev_mode_enabled, deployment_mode_enabled
+
+Settings = Mapping[str, str]
 
 load_dotenv()
 
@@ -98,6 +101,9 @@ def model_image_input_support(provider_name: str, model_name: str) -> Optional[b
     provider = normalize_llm_provider_name(provider_name) or provider_name.strip().lower()
     model = _normalize_model_name(model_name).lower()
 
+    parti_model = resolve_parti_model(provider, _normalize_model_name(model_name))
+    if parti_model is not None:
+        return parti_model.supports_images
     if provider in {"gemini", "vertex", "anthropic"}:
         return True
     if provider == "cloudflare" and model == DEFAULT_CLOUDFLARE_MODEL:
@@ -279,43 +285,43 @@ class LLMRuntimeConfig:
         }
 
 
-def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = config.get(name)
+def _env(name: str, default: Optional[str] = None, settings: Optional[Settings] = None) -> Optional[str]:
+    value = settings.get(name) if settings is not None else config.get(name)
     if value is None:
         return default
     stripped = value.strip()
     return stripped if stripped else default
 
 
-def _first_env(names: List[str], default: Optional[str] = None) -> Optional[str]:
+def _first_env(names: List[str], default: Optional[str] = None, settings: Optional[Settings] = None) -> Optional[str]:
     for name in names:
-        value = _env(name)
+        value = _env(name, settings=settings)
         if value is not None:
             return value
     return default
 
 
-def _cloudflare_base_url_from_env() -> Optional[str]:
-    configured = _first_env(["CLOUDFLARE_BASE_URL"])
+def _cloudflare_base_url_from_env(settings: Optional[Settings] = None) -> Optional[str]:
+    configured = _first_env(["CLOUDFLARE_BASE_URL"], settings=settings)
     if configured:
         return configured.rstrip("/")
-    account_id = _first_env(["CLOUDFLARE_ACCOUNT_ID"])
+    account_id = _first_env(["CLOUDFLARE_ACCOUNT_ID"], settings=settings)
     if not account_id:
         return None
     encoded_account_id = urllib.parse.quote(account_id, safe="")
     return f"https://api.cloudflare.com/client/v4/accounts/{encoded_account_id}/ai/v1"
 
 
-def _parse_csv_env(names: List[str]) -> Optional[List[str]]:
-    raw_value = _first_env(names)
+def _parse_csv_env(names: List[str], settings: Optional[Settings] = None) -> Optional[List[str]]:
+    raw_value = _first_env(names, settings=settings)
     if raw_value is None:
         return None
     values = [item.strip() for item in raw_value.split(",") if item.strip()]
     return values
 
 
-def _parse_json_mapping_env(names: List[str]) -> Dict[str, Any]:
-    raw_value = _first_env(names)
+def _parse_json_mapping_env(names: List[str], settings: Optional[Settings] = None) -> Dict[str, Any]:
+    raw_value = _first_env(names, settings=settings)
     if raw_value is None:
         return {}
     try:
@@ -350,29 +356,29 @@ def _runpod_base_url_env_names(*, include_generic: bool) -> List[str]:
     return names
 
 
-def _runpod_serverless_endpoint_url_from_env(*, include_generic: bool = True) -> Optional[str]:
-    endpoint_url = _first_env(["RUNPOD_ENDPOINT_URL"])
+def _runpod_serverless_endpoint_url_from_env(*, include_generic: bool = True, settings: Optional[Settings] = None) -> Optional[str]:
+    endpoint_url = _first_env(["RUNPOD_ENDPOINT_URL"], settings=settings)
     if endpoint_url:
         return endpoint_url
 
     for name in _runpod_base_url_env_names(include_generic=include_generic):
-        value = _env(name)
+        value = _env(name, settings=settings)
         if _is_runpod_serverless_endpoint_url(value):
             return value
     return None
 
 
-def _runpod_openai_base_url_from_env(*, include_generic: bool = True) -> Optional[str]:
+def _runpod_openai_base_url_from_env(*, include_generic: bool = True, settings: Optional[Settings] = None) -> Optional[str]:
     for name in _runpod_base_url_env_names(include_generic=include_generic):
-        value = _env(name)
+        value = _env(name, settings=settings)
         if value and not _is_runpod_serverless_endpoint_url(value):
             return value
     return None
 
 
-def _runpod_serverless_url_env_name(*, include_generic: bool = True) -> Optional[str]:
+def _runpod_serverless_url_env_name(*, include_generic: bool = True, settings: Optional[Settings] = None) -> Optional[str]:
     for name in _runpod_base_url_env_names(include_generic=include_generic):
-        if _is_runpod_serverless_endpoint_url(_env(name)):
+        if _is_runpod_serverless_endpoint_url(_env(name, settings=settings)):
             return name
     return None
 
@@ -395,22 +401,22 @@ def normalize_llm_provider_name(value: Optional[str]) -> Optional[str]:
     return PROVIDER_ALIASES.get(normalized, normalized)
 
 
-def _env_bool(name: str, default: bool = False) -> bool:
-    value = config.get(name)
+def _env_bool(name: str, default: bool = False, settings: Optional[Settings] = None) -> bool:
+    value = settings.get(name) if settings is not None else config.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _first_env_bool(names: List[str], default: bool = False) -> bool:
+def _first_env_bool(names: List[str], default: bool = False, settings: Optional[Settings] = None) -> bool:
     for name in names:
-        if config.get(name) is not None:
-            return _env_bool(name, default)
+        if (settings is not None and name in settings) or (settings is None and config.get(name) is not None):
+            return _env_bool(name, default, settings=settings)
     return default
 
 
-def _first_env_float(names: List[str], default: float) -> float:
-    raw_value = _first_env(names)
+def _first_env_float(names: List[str], default: float, settings: Optional[Settings] = None) -> float:
+    raw_value = _first_env(names, settings=settings)
     if raw_value is None:
         return default
     try:
@@ -420,8 +426,8 @@ def _first_env_float(names: List[str], default: float) -> float:
         return default
 
 
-def _first_env_optional_float(names: List[str], default: Optional[float] = None) -> Optional[float]:
-    raw_value = _first_env(names)
+def _first_env_optional_float(names: List[str], default: Optional[float] = None, settings: Optional[Settings] = None) -> Optional[float]:
+    raw_value = _first_env(names, settings=settings)
     if raw_value is None:
         return default
 
@@ -439,8 +445,9 @@ def _first_env_optional_string(
     names: List[str],
     default: Optional[str] = None,
     omit_values: Optional[List[str]] = None,
+    settings: Optional[Settings] = None,
 ) -> Optional[str]:
-    raw_value = _first_env(names)
+    raw_value = _first_env(names, settings=settings)
     if raw_value is None:
         return default
 
@@ -450,10 +457,11 @@ def _first_env_optional_string(
     return value
 
 
-def _first_env_int(names: List[str]) -> Optional[int]:
-    raw_value = _first_env(names)
+def _first_env_int(names: List[str], settings: Optional[Settings] = None) -> Optional[int]:
+    raw_value = _first_env(names, settings=settings)
     if raw_value is None:
         return None
+
     try:
         return int(raw_value)
     except ValueError:
@@ -461,107 +469,131 @@ def _first_env_int(names: List[str]) -> Optional[int]:
         return None
 
 
-def _default_provider_name() -> str:
-    provider_name = normalize_llm_provider_name(_env("LLM_PROVIDER"))
+def _scoped_env_helpers(settings: Optional[Settings]):
+    """Bind all constructor reads to one explicit settings snapshot."""
+    return (
+        lambda name, default=None: _env(name, default, settings),
+        lambda names, default=None: _first_env(names, default, settings),
+        lambda names, default=False: _first_env_bool(names, default, settings),
+        lambda names, default=0.0: _first_env_float(names, default, settings),
+        lambda names, default=None: _first_env_optional_float(names, default, settings),
+        lambda names: _first_env_int(names, settings),
+        lambda names, default=None, omit_values=None: _first_env_optional_string(names, default, omit_values, settings),
+        lambda include_generic=True: _runpod_openai_base_url_from_env(include_generic=include_generic, settings=settings),
+        lambda include_generic=True: _runpod_serverless_endpoint_url_from_env(include_generic=include_generic, settings=settings),
+        lambda include_generic=True: _runpod_serverless_url_env_name(include_generic=include_generic, settings=settings),
+        lambda: _model_endpoint_map(settings),
+        lambda: _cloudflare_base_url_from_env(settings),
+    )
+def _default_provider_name(settings: Optional[Settings] = None) -> str:
+    provider_name = normalize_llm_provider_name(_env("LLM_PROVIDER", settings=settings))
     if provider_name:
         return provider_name
-    runpod_api_key = _first_env(["RUNPOD_API_KEY"])
-    runpod_openai_base_url = _runpod_openai_base_url_from_env(include_generic=False)
-    runpod_serverless_endpoint = _first_env(["RUNPOD_ENDPOINT_ID"]) or _runpod_serverless_endpoint_url_from_env(include_generic=False)
+    runpod_api_key = _first_env(["RUNPOD_API_KEY"], settings=settings)
+    runpod_openai_base_url = _runpod_openai_base_url_from_env(include_generic=False, settings=settings)
+    runpod_serverless_endpoint = _first_env(["RUNPOD_ENDPOINT_ID"], settings=settings) or _runpod_serverless_endpoint_url_from_env(include_generic=False, settings=settings)
     if runpod_api_key and runpod_serverless_endpoint and not runpod_openai_base_url:
         return "runpod-serverless"
     if runpod_api_key and runpod_openai_base_url:
         return "runpod"
     if runpod_api_key and runpod_serverless_endpoint:
         return "runpod-serverless"
-    if _first_env(["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]):
+    if _first_env(["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"], settings=settings):
         return "vertex"
-    if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"]):
+    if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"], settings=settings):
         return "gemini"
-    if _first_env(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]):
+    if _first_env(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"], settings=settings):
         return "anthropic"
-    if _first_env(["LLM_BASE_URL", "OPENAI_BASE_URL"]):
+    if _first_env(["LLM_BASE_URL", "OPENAI_BASE_URL"], settings=settings):
         return "openai-compatible"
-    if _first_env(["OPENAI_API_KEY", "LLM_API_KEY"]):
+    if _first_env(["OPENAI_API_KEY", "LLM_API_KEY"], settings=settings):
         return "openai"
-    if _first_env(["BASETEN_API_KEY"]) and _first_env(["BASETEN_BASE_URL"], DEFAULT_BASETEN_BASE_URL):
+    if _first_env(["BASETEN_API_KEY"], settings=settings) and _first_env(["BASETEN_BASE_URL"], DEFAULT_BASETEN_BASE_URL, settings=settings):
         return "baseten"
-    if _first_env(["GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY"]) and _first_env(
+    if _first_env(["GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY"], settings=settings) and _first_env(
         ["GMI_BASE_URL", "GMI_CLOUD_BASE_URL", "GMICLOUD_BASE_URL"],
         DEFAULT_GMI_BASE_URL,
+        settings=settings,
     ):
         return "gmi"
-    if _first_env(["HUGGINGFACE_API_KEY", "HUGGINGFACE_HUB_TOKEN", "HF_TOKEN", "HF_API_TOKEN"]) and _first_env(
+    if _first_env(["HUGGINGFACE_API_KEY", "HUGGINGFACE_HUB_TOKEN", "HF_TOKEN", "HF_API_TOKEN"], settings=settings) and _first_env(
         ["HUGGINGFACE_BASE_URL", "HF_BASE_URL"],
         DEFAULT_HUGGINGFACE_BASE_URL,
+        settings=settings,
     ):
         return "huggingface"
-    if _first_env(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"]) and _cloudflare_base_url_from_env():
+    if _first_env(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"], settings=settings) and _cloudflare_base_url_from_env(settings):
         return "cloudflare"
-    if _first_env(["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"]) and _first_env(
+    if _first_env(["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"], settings=settings) and _first_env(
         ["NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL"],
         DEFAULT_NVIDIA_BASE_URL,
+        settings=settings,
     ):
         return "nvidia"
-    if _first_env(["XAI_API_KEY", "GROK_API_KEY"]) and _first_env(
+    if _first_env(["XAI_API_KEY", "GROK_API_KEY"], settings=settings) and _first_env(
         ["XAI_BASE_URL", "GROK_BASE_URL"],
         DEFAULT_XAI_BASE_URL,
+        settings=settings,
     ):
         return "xai"
-    if _first_env(["TOGETHER_MODEL", "TOGETHER_LLM_BASE_URL"]) and _first_env(["TOGETHER_API_KEY", "TOGETHER_IMAGE_API_KEY"]):
+    if _first_env(["TOGETHER_MODEL", "TOGETHER_LLM_BASE_URL"], settings=settings) and _first_env(["TOGETHER_API_KEY", "TOGETHER_IMAGE_API_KEY"], settings=settings):
         return "together"
     return "simulation"
 
 
-def _configured_provider_names(default_provider: str) -> List[str]:
+def _configured_provider_names(default_provider: str, settings: Optional[Settings] = None) -> List[str]:
     providers = {default_provider, "simulation"}
-    if _first_env(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]):
+    if _first_env(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"], settings=settings):
         providers.add("anthropic")
-    if _first_env(["BASETEN_API_KEY"]) and _first_env(["BASETEN_BASE_URL", "LLM_BASE_URL"], DEFAULT_BASETEN_BASE_URL):
+    if _first_env(["BASETEN_API_KEY"], settings=settings) and _first_env(["BASETEN_BASE_URL", "LLM_BASE_URL"], DEFAULT_BASETEN_BASE_URL, settings=settings):
         providers.add("baseten")
-    if _first_env(["GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY"]) and _first_env(
+    if _first_env(["GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY"], settings=settings) and _first_env(
         ["GMI_BASE_URL", "GMI_CLOUD_BASE_URL", "GMICLOUD_BASE_URL"],
         DEFAULT_GMI_BASE_URL,
+        settings=settings,
     ):
         providers.add("gmi")
-    if _first_env(["HUGGINGFACE_API_KEY", "HUGGINGFACE_HUB_TOKEN", "HF_TOKEN", "HF_API_TOKEN"]) and _first_env(
+    if _first_env(["HUGGINGFACE_API_KEY", "HUGGINGFACE_HUB_TOKEN", "HF_TOKEN", "HF_API_TOKEN"], settings=settings) and _first_env(
         ["HUGGINGFACE_BASE_URL", "HF_BASE_URL"],
         DEFAULT_HUGGINGFACE_BASE_URL,
+        settings=settings,
     ):
         providers.add("huggingface")
-    if _first_env(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"]) and _cloudflare_base_url_from_env():
+    if _first_env(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"], settings=settings) and _cloudflare_base_url_from_env(settings):
         providers.add("cloudflare")
-    if _first_env(["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"]) and _first_env(
+    if _first_env(["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"], settings=settings) and _first_env(
         ["NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL", "LLM_BASE_URL"],
         DEFAULT_NVIDIA_BASE_URL,
+        settings=settings,
     ):
         providers.add("nvidia")
-    if _first_env(["XAI_API_KEY", "GROK_API_KEY"]) and _first_env(
+    if _first_env(["XAI_API_KEY", "GROK_API_KEY"], settings=settings) and _first_env(
         ["XAI_BASE_URL", "GROK_BASE_URL", "LLM_BASE_URL"],
         DEFAULT_XAI_BASE_URL,
+        settings=settings,
     ):
         providers.add("xai")
-    if _first_env(["TOGETHER_API_KEY", "TOGETHER_IMAGE_API_KEY"]) and _first_env(["TOGETHER_MODEL", "TOGETHER_LLM_BASE_URL"]):
+    if _first_env(["TOGETHER_API_KEY", "TOGETHER_IMAGE_API_KEY"], settings=settings) and _first_env(["TOGETHER_MODEL", "TOGETHER_LLM_BASE_URL"], settings=settings):
         providers.add("together")
-    if _first_env(["RUNPOD_API_KEY"]) and _runpod_openai_base_url_from_env():
+    if _first_env(["RUNPOD_API_KEY"], settings=settings) and _runpod_openai_base_url_from_env(settings=settings):
         providers.add("runpod")
-    if _first_env(["RUNPOD_API_KEY"]) and (_first_env(["RUNPOD_ENDPOINT_ID"]) or _runpod_serverless_endpoint_url_from_env()):
+    if _first_env(["RUNPOD_API_KEY"], settings=settings) and (_first_env(["RUNPOD_ENDPOINT_ID"], settings=settings) or _runpod_serverless_endpoint_url_from_env(settings=settings)):
         providers.add("runpod-serverless")
-    if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"]):
+    if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"], settings=settings):
         providers.add("gemini")
-    if _first_env(["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]):
+    if _first_env(["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"], settings=settings):
         providers.add("vertex")
-    if _first_env(["OPENAI_API_KEY", "LLM_API_KEY"]):
+    if _first_env(["OPENAI_API_KEY", "LLM_API_KEY"], settings=settings):
         providers.add("openai")
-    if _first_env(["LLM_BASE_URL", "OPENAI_BASE_URL"]):
+    if _first_env(["LLM_BASE_URL", "OPENAI_BASE_URL"], settings=settings):
         providers.add("openai-compatible")
     return sorted(provider for provider in providers if provider in SUPPORTED_LLM_PROVIDERS)
 
 
-def _allowed_provider_names(default_provider: str) -> Optional[List[str]]:
-    configured = _parse_csv_env(["LLM_ALLOWED_PROVIDERS", "ALLOWED_LLM_PROVIDERS"])
+def _allowed_provider_names(default_provider: str, settings: Optional[Settings] = None) -> Optional[List[str]]:
+    configured = _parse_csv_env(["LLM_ALLOWED_PROVIDERS", "ALLOWED_LLM_PROVIDERS"], settings=settings)
     if configured is None:
-        return _configured_provider_names(default_provider)
+        return _configured_provider_names(default_provider, settings)
     allowed: List[str] = []
     for provider in configured:
         normalized = normalize_llm_provider_name(provider)
@@ -570,83 +602,84 @@ def _allowed_provider_names(default_provider: str) -> Optional[List[str]]:
     return sorted(set(allowed))
 
 
-def _default_model_for_provider(provider_name: str, *, include_runtime_override: bool = True) -> str:
+def _default_model_for_provider(provider_name: str, *, include_runtime_override: bool = True, settings: Optional[Settings] = None) -> str:
     runtime_model = ["LLM_MODEL"] if include_runtime_override else []
     if provider_name == "anthropic":
-        return _first_env(["ANTHROPIC_MODEL", "CLAUDE_MODEL", *runtime_model], DEFAULT_ANTHROPIC_MODEL) or DEFAULT_ANTHROPIC_MODEL
+        return _first_env(["ANTHROPIC_MODEL", "CLAUDE_MODEL", *runtime_model], DEFAULT_ANTHROPIC_MODEL, settings=settings) or DEFAULT_ANTHROPIC_MODEL
     if provider_name == "baseten":
-        return _first_env(["BASETEN_MODEL", *runtime_model], DEFAULT_BASETEN_MODEL) or DEFAULT_BASETEN_MODEL
+        return _first_env(["BASETEN_MODEL", *runtime_model], DEFAULT_BASETEN_MODEL, settings=settings) or DEFAULT_BASETEN_MODEL
     if provider_name == "gemini":
-        return _first_env([*runtime_model, "GEMINI_MODEL"], DEFAULT_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL
+        return _first_env([*runtime_model, "GEMINI_MODEL"], DEFAULT_GEMINI_MODEL, settings=settings) or DEFAULT_GEMINI_MODEL
     if provider_name == "vertex":
-        return _first_env([*runtime_model, "VERTEX_AI_MODEL", "VERTEX_MODEL"], DEFAULT_VERTEX_MODEL) or DEFAULT_VERTEX_MODEL
+        return _first_env([*runtime_model, "VERTEX_AI_MODEL", "VERTEX_MODEL"], DEFAULT_VERTEX_MODEL, settings=settings) or DEFAULT_VERTEX_MODEL
     if provider_name == "gmi":
         return _normalize_model_for_provider(
             provider_name,
-            _first_env(["GMI_MODEL", "GMI_CLOUD_MODEL", "GMICLOUD_MODEL", *runtime_model], DEFAULT_GMI_MODEL) or DEFAULT_GMI_MODEL,
+            _first_env(["GMI_MODEL", "GMI_CLOUD_MODEL", "GMICLOUD_MODEL", *runtime_model], DEFAULT_GMI_MODEL, settings=settings) or DEFAULT_GMI_MODEL,
         )
     if provider_name == "huggingface":
-        return _first_env(["HUGGINGFACE_MODEL", "HF_MODEL"], DEFAULT_HUGGINGFACE_MODEL) or DEFAULT_HUGGINGFACE_MODEL
+        return _first_env(["HUGGINGFACE_MODEL", "HF_MODEL"], DEFAULT_HUGGINGFACE_MODEL, settings=settings) or DEFAULT_HUGGINGFACE_MODEL
     if provider_name == "cloudflare":
-        return _first_env(["CLOUDFLARE_MODEL", *runtime_model], DEFAULT_CLOUDFLARE_MODEL) or DEFAULT_CLOUDFLARE_MODEL
+        return _first_env(["CLOUDFLARE_MODEL", *runtime_model], DEFAULT_CLOUDFLARE_MODEL, settings=settings) or DEFAULT_CLOUDFLARE_MODEL
     if provider_name == "nvidia":
-        return _first_env(["NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL", *runtime_model], DEFAULT_NVIDIA_MODEL) or DEFAULT_NVIDIA_MODEL
+        return _first_env(["NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL", *runtime_model], DEFAULT_NVIDIA_MODEL, settings=settings) or DEFAULT_NVIDIA_MODEL
     if provider_name == "xai":
-        return _first_env(["XAI_MODEL", "GROK_MODEL", *runtime_model], DEFAULT_XAI_MODEL) or DEFAULT_XAI_MODEL
+        return _first_env(["XAI_MODEL", "GROK_MODEL", *runtime_model], DEFAULT_XAI_MODEL, settings=settings) or DEFAULT_XAI_MODEL
     if provider_name == "together":
-        return _first_env(["TOGETHER_MODEL", *runtime_model], DEFAULT_TOGETHER_MODEL) or DEFAULT_TOGETHER_MODEL
+        return _first_env(["TOGETHER_MODEL", *runtime_model], DEFAULT_TOGETHER_MODEL, settings=settings) or DEFAULT_TOGETHER_MODEL
     if provider_name == "openai":
-        return _first_env(["OPENAI_MODEL", *runtime_model], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
+        return _first_env(["OPENAI_MODEL", *runtime_model], DEFAULT_OPENAI_MODEL, settings=settings) or DEFAULT_OPENAI_MODEL
     if provider_name == "openai-compatible":
-        return _first_env([*runtime_model, "OPENAI_MODEL"], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
+        return _first_env([*runtime_model, "OPENAI_MODEL"], DEFAULT_OPENAI_MODEL, settings=settings) or DEFAULT_OPENAI_MODEL
     if provider_name == "runpod":
-        return _first_env(["RUNPOD_OPENAI_MODEL", *runtime_model, "RUNPOD_MODEL"], "runpod-default") or "runpod-default"
+        return _first_env(["RUNPOD_OPENAI_MODEL", *runtime_model, "RUNPOD_MODEL", "RUNPOD_PARTI_MODEL"], "runpod-default", settings=settings) or "runpod-default"
     if provider_name == "runpod-serverless":
         return (
-            _first_env(["RUNPOD_SERVERLESS_MODEL", "RUNPOD_MODEL", "RUNPOD_OPENAI_MODEL", *runtime_model], "runpod-serverless")
+            _first_env(["RUNPOD_SERVERLESS_MODEL", "RUNPOD_MODEL", "RUNPOD_OPENAI_MODEL", *runtime_model], "runpod-serverless", settings=settings)
             or "runpod-serverless"
         )
     return "simulation"
 
 
-def _fallback_model_for_provider(provider_name: str) -> Optional[str]:
+def _fallback_model_for_provider(provider_name: str, settings: Optional[Settings] = None) -> Optional[str]:
     if provider_name == "anthropic":
-        return _first_env(["ANTHROPIC_FALLBACK_MODEL", "CLAUDE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        return _first_env(["ANTHROPIC_FALLBACK_MODEL", "CLAUDE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"], settings=settings)
     if provider_name == "baseten":
-        return _first_env(["BASETEN_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        return _first_env(["BASETEN_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"], settings=settings)
     if provider_name == "gemini":
-        return _first_env(["LLM_FALLBACK_MODEL", "GEMINI_FALLBACK_MODEL"], DEFAULT_GEMINI_FALLBACK_MODEL)
+        return _first_env(["LLM_FALLBACK_MODEL", "GEMINI_FALLBACK_MODEL"], DEFAULT_GEMINI_FALLBACK_MODEL, settings=settings)
     if provider_name == "vertex":
         return _first_env(
             ["LLM_FALLBACK_MODEL", "VERTEX_AI_FALLBACK_MODEL", "VERTEX_FALLBACK_MODEL"],
             DEFAULT_VERTEX_FALLBACK_MODEL,
+            settings=settings,
         )
     if provider_name == "gmi":
-        fallback = _first_env(["GMI_FALLBACK_MODEL", "GMI_CLOUD_FALLBACK_MODEL", "GMICLOUD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        fallback = _first_env(["GMI_FALLBACK_MODEL", "GMI_CLOUD_FALLBACK_MODEL", "GMICLOUD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"], settings=settings)
         return _normalize_model_for_provider(provider_name, fallback) if fallback else None
     if provider_name == "huggingface":
-        return _first_env(["HUGGINGFACE_FALLBACK_MODEL", "HF_FALLBACK_MODEL"])
+        return _first_env(["HUGGINGFACE_FALLBACK_MODEL", "HF_FALLBACK_MODEL"], settings=settings)
     if provider_name == "cloudflare":
-        return _first_env(["CLOUDFLARE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        return _first_env(["CLOUDFLARE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"], settings=settings)
     if provider_name == "nvidia":
-        return _first_env(["NVIDIA_FALLBACK_MODEL", "NVIDIA_NIM_FALLBACK_MODEL", "NIM_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        return _first_env(["NVIDIA_FALLBACK_MODEL", "NVIDIA_NIM_FALLBACK_MODEL", "NIM_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"], settings=settings)
     if provider_name == "xai":
-        return _first_env(["XAI_FALLBACK_MODEL", "GROK_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        return _first_env(["XAI_FALLBACK_MODEL", "GROK_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"], settings=settings)
     if provider_name == "together":
-        return _first_env(["TOGETHER_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        return _first_env(["TOGETHER_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"], settings=settings)
     if provider_name == "openai":
-        return _first_env(["OPENAI_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        return _first_env(["OPENAI_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"], settings=settings)
     if provider_name == "openai-compatible":
-        return _first_env(["LLM_FALLBACK_MODEL", "OPENAI_FALLBACK_MODEL"])
+        return _first_env(["LLM_FALLBACK_MODEL", "OPENAI_FALLBACK_MODEL"], settings=settings)
     if provider_name == "runpod":
-        return _first_env(["RUNPOD_OPENAI_FALLBACK_MODEL", "RUNPOD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        return _first_env(["RUNPOD_OPENAI_FALLBACK_MODEL", "RUNPOD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"], settings=settings)
     if provider_name == "runpod-serverless":
-        return _first_env(["RUNPOD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        return _first_env(["RUNPOD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"], settings=settings)
     return None
 
 
-def _model_endpoint_map() -> Dict[str, Any]:
-    return _parse_json_mapping_env(["RUNPOD_MODEL_ENDPOINTS", "RUNPOD_ENDPOINTS_BY_MODEL"])
+def _model_endpoint_map(settings: Optional[Settings] = None) -> Dict[str, Any]:
+    return _parse_json_mapping_env(["RUNPOD_MODEL_ENDPOINTS", "RUNPOD_ENDPOINTS_BY_MODEL"], settings=settings)
 
 
 def _normalize_model_for_provider(provider_name: str, model_name: Optional[str]) -> str:
@@ -669,7 +702,7 @@ def _normalize_model_for_provider(provider_name: str, model_name: Optional[str])
     return aliases.get(lowered, model)
 
 
-def _allowed_model_names(provider_name: str, default_model: str) -> Optional[List[str]]:
+def _allowed_model_names(provider_name: str, default_model: str, settings: Optional[Settings] = None) -> Optional[List[str]]:
     env_names = ["LLM_ALLOWED_MODELS", "ALLOWED_LLM_MODELS"]
     if provider_name == "anthropic":
         env_names = ["ANTHROPIC_ALLOWED_MODELS", "CLAUDE_ALLOWED_MODELS", "ALLOWED_ANTHROPIC_MODELS", *env_names]
@@ -703,24 +736,25 @@ def _allowed_model_names(provider_name: str, default_model: str) -> Optional[Lis
     elif provider_name in {"runpod", "runpod-serverless"}:
         env_names = ["RUNPOD_ALLOWED_MODELS", "ALLOWED_RUNPOD_MODELS", *env_names]
 
-    configured = _parse_csv_env(env_names)
+    configured = _parse_csv_env(env_names, settings=settings)
     if configured is not None:
         return sorted(set(_normalize_model_for_provider(provider_name, model) for model in configured))
 
     defaults = {default_model}
-    fallback = _fallback_model_for_provider(provider_name)
+    fallback = _fallback_model_for_provider(provider_name, settings)
     if fallback:
         defaults.add(fallback)
     if provider_name == "runpod-serverless":
-        defaults.update(str(model_name) for model_name in _model_endpoint_map().keys())
+        defaults.update(str(model_name) for model_name in _model_endpoint_map(settings).keys())
     return sorted(model for model in defaults if model)
 
 
 def resolve_llm_runtime_config(
     provider_name: Optional[str] = None,
     model_name: Optional[str] = None,
+    settings: Optional[Settings] = None,
 ) -> LLMRuntimeConfig:
-    default_provider = _default_provider_name()
+    default_provider = _default_provider_name(settings)
     provider_requested = bool(provider_name and provider_name.strip())
     provider = normalize_llm_provider_name(provider_name) or default_provider
     if provider not in SUPPORTED_LLM_PROVIDERS:
@@ -729,8 +763,8 @@ def resolve_llm_runtime_config(
             f"{', '.join(sorted(SUPPORTED_LLM_PROVIDERS))}."
         )
 
-    configured_providers = _configured_provider_names(default_provider)
-    allowed_providers = _allowed_provider_names(default_provider)
+    configured_providers = _configured_provider_names(default_provider, settings)
+    allowed_providers = _allowed_provider_names(default_provider, settings)
     if allowed_providers is not None and provider not in allowed_providers:
         if provider_requested:
             allowed_providers = sorted({*allowed_providers, provider})
@@ -743,11 +777,12 @@ def resolve_llm_runtime_config(
     default_model = _default_model_for_provider(
         provider,
         include_runtime_override=provider == default_provider,
+        settings=settings,
     )
     requested_model = model_name.strip() if isinstance(model_name, str) else None
     requested_model = requested_model or None
     model = _normalize_model_for_provider(provider, requested_model or default_model)
-    allowed_models = _allowed_model_names(provider, default_model)
+    allowed_models = _allowed_model_names(provider, default_model, settings)
     if (
         requested_model
         and allowed_models is not None
@@ -774,8 +809,8 @@ def resolve_llm_runtime_config(
     )
 
 
-def get_llm_runtime_debug_config() -> Dict[str, Any]:
-    return resolve_llm_runtime_config().as_debug_dict()
+def get_llm_runtime_debug_config(settings: Optional[Settings] = None) -> Dict[str, Any]:
+    return resolve_llm_runtime_config(settings=settings).as_debug_dict()
 
 
 def _normalize_model_name(model_name: str) -> str:
@@ -1011,7 +1046,11 @@ class GeminiProvider(StructuredLLMProvider):
     provider_name = "gemini"
     provider_label = "Gemini"
 
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(self, model_name: Optional[str] = None, settings: Optional[Settings] = None):
+        self.settings = settings
+        (_env, _first_env, _first_env_bool, _first_env_float, _first_env_optional_float, _first_env_int,
+         _first_env_optional_string, _runpod_openai_base_url_from_env, _runpod_serverless_endpoint_url_from_env,
+         _runpod_serverless_url_env_name, _model_endpoint_map, _cloudflare_base_url_from_env) = _scoped_env_helpers(settings)
         self.api_key = _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY", "LLM_API_KEY"])
         self.requested_model = model_name or _first_env(["LLM_MODEL", "GEMINI_MODEL"], DEFAULT_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL
         self.fallback_model = (
@@ -1213,7 +1252,10 @@ class VertexAIProvider(GeminiProvider):
     provider_name = "vertex"
     provider_label = "Vertex AI"
 
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(self, model_name: Optional[str] = None, settings: Optional[Settings] = None):
+        (_env, _first_env, _first_env_bool, _first_env_float, _first_env_optional_float, _first_env_int,
+         _first_env_optional_string, _runpod_openai_base_url_from_env, _runpod_serverless_endpoint_url_from_env,
+         _runpod_serverless_url_env_name, _model_endpoint_map, _cloudflare_base_url_from_env) = _scoped_env_helpers(settings)
         self.project = _first_env(
             ["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]
         )
@@ -1282,7 +1324,10 @@ class VertexAIProvider(GeminiProvider):
 class AnthropicProvider(StructuredLLMProvider):
     provider_name = "anthropic"
 
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(self, model_name: Optional[str] = None, settings: Optional[Settings] = None):
+        (_env, _first_env, _first_env_bool, _first_env_float, _first_env_optional_float, _first_env_int,
+         _first_env_optional_string, _runpod_openai_base_url_from_env, _runpod_serverless_endpoint_url_from_env,
+         _runpod_serverless_url_env_name, _model_endpoint_map, _cloudflare_base_url_from_env) = _scoped_env_helpers(settings)
         self.api_key = _first_env(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"])
         self.base_url = (
             _first_env(["ANTHROPIC_BASE_URL", "CLAUDE_BASE_URL"], DEFAULT_ANTHROPIC_BASE_URL)
@@ -1302,6 +1347,7 @@ class AnthropicProvider(StructuredLLMProvider):
         self.max_tokens = _first_env_int(["ANTHROPIC_MAX_TOKENS", "CLAUDE_MAX_TOKENS", "LLM_MAX_TOKENS"])
         self.temperature = _first_env_optional_float(["ANTHROPIC_TEMPERATURE", "CLAUDE_TEMPERATURE", "LLM_TEMPERATURE"], default=None)
         self.anthropic_version = _first_env(["ANTHROPIC_VERSION", "CLAUDE_API_VERSION"], DEFAULT_ANTHROPIC_VERSION) or DEFAULT_ANTHROPIC_VERSION
+        self.user_agent = _env("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT) or DEFAULT_HTTP_USER_AGENT
         self.use_output_config = _first_env_bool(["ANTHROPIC_JSON_SCHEMA_OUTPUT", "CLAUDE_JSON_SCHEMA_OUTPUT"], default=True)
         self.model_name = self.requested_model
         self._validation: Optional[LLMProviderValidation] = None
@@ -1315,7 +1361,7 @@ class AnthropicProvider(StructuredLLMProvider):
         return {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": config.get("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
+            "User-Agent": self.user_agent,
             "x-api-key": self.api_key or "",
             "anthropic-version": self.anthropic_version,
         }
@@ -1607,7 +1653,10 @@ class AnthropicProvider(StructuredLLMProvider):
 
 
 class OpenAICompatibleProvider(StructuredLLMProvider):
-    def __init__(self, provider_name: str = "openai", model_name: Optional[str] = None):
+    def __init__(self, provider_name: str = "openai", model_name: Optional[str] = None, settings: Optional[Settings] = None):
+        (_env, _first_env, _first_env_bool, _first_env_float, _first_env_optional_float, _first_env_int,
+         _first_env_optional_string, _runpod_openai_base_url_from_env, _runpod_serverless_endpoint_url_from_env,
+         _runpod_serverless_url_env_name, _model_endpoint_map, _cloudflare_base_url_from_env) = _scoped_env_helpers(settings)
         normalized_provider = normalize_llm_provider_name(provider_name) or "openai"
         if normalized_provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "runpod", "together", "xai"}:
             self.provider_name = normalized_provider
@@ -1745,7 +1794,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         elif self.provider_name == "runpod":
             api_key_names = ["RUNPOD_API_KEY", "LLM_API_KEY"]
             base_url_names = ["RUNPOD_OPENAI_BASE_URL", "RUNPOD_BASE_URL", "LLM_BASE_URL"]
-            model_names = ["RUNPOD_OPENAI_MODEL", "LLM_MODEL", "RUNPOD_MODEL"]
+            model_names = ["RUNPOD_OPENAI_MODEL", "LLM_MODEL", "RUNPOD_MODEL", "RUNPOD_PARTI_MODEL"]
             fallback_model_names = ["RUNPOD_OPENAI_FALLBACK_MODEL", "RUNPOD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"]
             strict_names = ["STRICT_RUNPOD", "STRICT_LLM"]
             validate_model_names = ["RUNPOD_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"]
@@ -1828,8 +1877,9 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             omit_values=["default", "omit"],
         )
         self.cloudflare_enable_thinking = (
-            config.cloudflare_enable_thinking if self.provider_name == "cloudflare" else None
+            _first_env_bool(["CLOUDFLARE_ENABLE_THINKING"], default=False) if self.provider_name == "cloudflare" else None
         )
+        self.user_agent = _env("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT) or DEFAULT_HTTP_USER_AGENT
         self.allow_no_api_key = _first_env_bool(
             allow_no_api_key_names,
             default=self.provider_name == "openai-compatible" and configured_base_url is not None,
@@ -1847,7 +1897,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": config.get("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
+            "User-Agent": self.user_agent,
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -2349,7 +2399,11 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
 class RunpodServerlessProvider(StructuredLLMProvider):
     provider_name = "runpod-serverless"
 
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(self, model_name: Optional[str] = None, settings: Optional[Settings] = None):
+        self.settings = settings
+        (_env, _first_env, _first_env_bool, _first_env_float, _first_env_optional_float, _first_env_int,
+         _first_env_optional_string, _runpod_openai_base_url_from_env, _runpod_serverless_endpoint_url_from_env,
+         _runpod_serverless_url_env_name, _model_endpoint_map, _cloudflare_base_url_from_env) = _scoped_env_helpers(settings)
         self.api_key = _first_env(["RUNPOD_API_KEY"])
         self.requested_model = (
             model_name
@@ -2391,8 +2445,8 @@ class RunpodServerlessProvider(StructuredLLMProvider):
             endpoint_url = str(raw_url) if raw_url else None
             endpoint_id = str(raw_id) if raw_id else None
 
-        endpoint_url = endpoint_url or _runpod_serverless_endpoint_url_from_env()
-        endpoint_id = endpoint_id or _first_env(["RUNPOD_ENDPOINT_ID"])
+        endpoint_url = endpoint_url or _runpod_serverless_endpoint_url_from_env(settings=self.settings)
+        endpoint_id = endpoint_id or _first_env(["RUNPOD_ENDPOINT_ID"], settings=self.settings)
 
         if endpoint_url:
             parsed = urllib.parse.urlparse(endpoint_url)
@@ -2601,20 +2655,21 @@ def build_llm_provider(
     provider_name: Optional[str] = None,
     model_name: Optional[str] = None,
     runtime_config: Optional[LLMRuntimeConfig] = None,
+    settings: Optional[Settings] = None,
 ) -> StructuredLLMProvider:
-    runtime = runtime_config or resolve_llm_runtime_config(provider_name=provider_name, model_name=model_name)
+    runtime = runtime_config or resolve_llm_runtime_config(provider_name=provider_name, model_name=model_name, settings=settings)
     if runtime.provider == "anthropic":
-        return AnthropicProvider(model_name=runtime.model)
+        return AnthropicProvider(model_name=runtime.model, settings=settings)
     if runtime.provider == "gemini":
-        return GeminiProvider(model_name=runtime.model)
+        return GeminiProvider(model_name=runtime.model, settings=settings)
     if runtime.provider == "vertex":
-        return VertexAIProvider(model_name=runtime.model)
+        return VertexAIProvider(model_name=runtime.model, settings=settings)
     if runtime.provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "openai-compatible", "together", "xai"}:
-        return OpenAICompatibleProvider(provider_name=runtime.provider, model_name=runtime.model)
+        return OpenAICompatibleProvider(provider_name=runtime.provider, model_name=runtime.model, settings=settings)
     if runtime.provider == "runpod":
-        return OpenAICompatibleProvider(provider_name="runpod", model_name=runtime.model)
+        return OpenAICompatibleProvider(provider_name="runpod", model_name=runtime.model, settings=settings)
     if runtime.provider == "runpod-serverless":
-        return RunpodServerlessProvider(model_name=runtime.model)
+        return RunpodServerlessProvider(model_name=runtime.model, settings=settings)
     if runtime.provider == "simulation":
         return SimulationProvider()
 

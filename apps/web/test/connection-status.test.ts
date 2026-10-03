@@ -107,3 +107,57 @@ test("a dropped API connection is not treated as healthy", () => {
   assert.equal(badge.tone, "error");
   assert.equal(badge.reason, "disconnected");
 });
+
+test("an active FormaAgent authoring session is distinct from a stable ready badge", () => {
+  const badge = workspaceStatusBadge({
+    connection: "connected",
+    agent: { status: "success", content: "Project is ready." },
+    authoring: true,
+  });
+
+  assert.equal(badge.tone, "authoring");
+  assert.equal(badge.reason, "authoring");
+  assert.match(badge.label, /Forma Agent/);
+  assert.equal(badge.pulse, true);
+});
+
+test("a delivered OpenCode result is distinct from authoring and ready", () => {
+  const badge = workspaceStatusBadge({
+    connection: "connected",
+    authoring: true,
+    delivered: true,
+  });
+
+  assert.equal(badge.tone, "delivered");
+  assert.equal(badge.reason, "delivered");
+  assert.match(badge.label, /Delivered/);
+  assert.equal(badge.pulse, false);
+});
+
+test("delivery is only claimed while authoring is active", () => {
+  const badge = workspaceStatusBadge({
+    connection: "connected",
+    delivered: true,
+    authoring: false,
+  });
+
+  assert.equal(badge.reason, "stable");
+  assert.equal(badge.tone, "ok");
+});
+
+test("connection and auth failures still outrank an authoring session", () => {
+  const disconnected = workspaceStatusBadge({
+    connection: "disconnected",
+    authoring: true,
+  });
+  const authFailed = workspaceStatusBadge({
+    connection: "connected",
+    authError: true,
+    authoring: true,
+  });
+
+  assert.equal(disconnected.tone, "error");
+  assert.equal(disconnected.reason, "disconnected");
+  assert.equal(authFailed.tone, "error");
+  assert.equal(authFailed.reason, "auth");
+});

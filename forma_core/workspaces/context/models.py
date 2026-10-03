@@ -44,6 +44,7 @@ class ContextAttachment(BaseModel):
     uri: NonEmptyString | None = None
     data_url: NonEmptyString | None = None
     extracted_text: NonEmptyString | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
     source: Literal["upload", "clipboard", "url"] = "upload"
 
     @model_validator(mode="after")
@@ -58,6 +59,7 @@ class ContextGatheringRequest(BaseModel):
 
     conversation_id: NonEmptyString
     text: str = ""
+    generation_mode: Literal["regular", "progressive"] = "regular"
     attachments: list[ContextAttachment] = Field(default_factory=list)
     requested_tool: Literal["build_project", "render_project", "iterate_project"] | None = None
 

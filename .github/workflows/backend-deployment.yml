@@ -1,0 +1,80 @@
+name: Backend deployment smoke
+
+on:
+  pull_request:
+    paths:
+      - "apps/api/**"
+      - "forma_core/**"
+      - "main.py"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - "vercel.json"
+      - ".vercelignore"
+      - "tests/tooling/test_core_package.py"
+      - "tests/projects/test_pdf_context*.py"
+      - "tests/projects/test_project_deletion.py"
+      - "tests/providers/test_runtime_contract.py"
+      - "tests/providers/test_llm_runtime.py"
+      - "tests/opencode/test_authoring_access.py"
+      - "tests/observability/test_logs.py"
+      - ".github/workflows/backend-deployment.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "forma_core/**"
+      - "main.py"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - "vercel.json"
+      - ".vercelignore"
+      - "tests/tooling/test_core_package.py"
+      - "tests/projects/test_pdf_context*.py"
+      - "tests/projects/test_project_deletion.py"
+      - "tests/providers/test_runtime_contract.py"
+      - "tests/providers/test_llm_runtime.py"
+      - "tests/opencode/test_authoring_access.py"
+      - "tests/observability/test_logs.py"
+      - ".github/workflows/backend-deployment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frozen-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        run: python -m pip install uv==0.12.17
+      - name: Reject stale backend lockfile
+        run: uv lock --project apps/api --check
+      - name: Install the frozen deployment dependencies
+        run: uv sync --project apps/api --frozen --no-dev
+      - name: Import backend entrypoints and exercise PDF extraction and rendering
+        env:
+          FORMA_DEV_MODE: "true"
+          DATABASE_BACKEND: "sqlite"
+        run: >-
+          uv run --project apps/api --frozen --no-dev python -m unittest -v
+          tests.tooling.test_core_package.CorePackageTests.test_root_main_shim_exports_backend_app_for_legacy_vercel_detection
+          tests.projects.test_pdf_context
+          tests.projects.test_pdf_context_ingestion
+      - name: Verify runtime availability, purge recovery, and serverless logging
+        env:
+          FORMA_DEV_MODE: "true"
+          DATABASE_BACKEND: "sqlite"
+        run: >-
+          uv run --project apps/api --frozen --no-dev --with pytest==9.1.1 python -m pytest -q
+          tests/opencode/test_authoring_access.py
+          tests/providers/test_runtime_contract.py
+          tests/providers/test_llm_runtime.py
+          tests/projects/test_project_deletion.py
+          tests/observability/test_logs.py
+          tests/api/test_project_deletion_auth.py
+          tests/jobs/test_project_deletion_jobs.py

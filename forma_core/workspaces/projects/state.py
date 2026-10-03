@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from forma_core.workspaces.design_briefs import DesignBrief
-from forma_core.workspaces.projects.models import ComponentInstance, HardwareIR
+from forma_core.workspaces.projects.models import ComponentInstance, HardwareIntermediateRepresentation
 
 
 PROJECT_REVISION_SCHEMA_VERSION = "1.0"
@@ -50,7 +50,7 @@ class ProjectRevisionDraft(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    state: HardwareIR
+    state: HardwareIntermediateRepresentation
     components: list[ComponentInstance] = Field(default_factory=list)
     systems: list[ProjectSystem] = Field(default_factory=list)
     artifacts: list[ProjectArtifact] = Field(default_factory=list)
@@ -61,7 +61,7 @@ class ProjectRevisionDraft(BaseModel):
         component_payloads = [item.model_dump(mode="json") for item in self.components]
         state_component_payloads = [item.model_dump(mode="json") for item in self.state.components]
         if component_payloads != state_component_payloads:
-            raise ValueError("Project revision components must match the canonical HardwareIR state.")
+            raise ValueError("Project revision components must match the canonical HardwareIntermediateRepresentation state.")
         # Keep runtime-only shared part details available to worker consumers while
         # persisting only the normalized physical-instance records.
         self.components = list(self.state.components)
@@ -140,6 +140,10 @@ class ProjectStateRepository(Protocol):
 
     def get_latest_project_revision(self, project_id: str, owner_user_id: str) -> Any | None: ...
 
+    def list_project_revisions(self, project_id: str, owner_user_id: str, *, limit: int, before: int | None = None) -> list[Any]: ...
+
+    def get_project_revision_by_id(self, project_id: str, owner_user_id: str, revision_id: str) -> Any | None: ...
+
     def get_project_revision(
         self,
         project_id: str,
@@ -217,6 +221,21 @@ class ProjectStateService:
         job_id = str(source_job_id or "").strip()
         record = self._repository.get_project_revision_by_source_job(project, owner, job_id)
         return _revision_from_record(record) if record is not None else None
+
+    def list_revisions(self, project_id: str | UUID, owner_user_id: str, *, limit: int = 21, before: int | None = None) -> list[ProjectRevision]:
+        """Page immutable snapshots in descending version order within one owner/project."""
+        project = str(_canonical_uuid(project_id, "project_id"))
+        records = self._repository.list_project_revisions(project, owner_user_id.strip(), limit=limit, before=before)
+        return [_revision_from_record(record) for record in records]
+
+    def get_revision_by_id(self, project_id: str | UUID, owner_user_id: str, revision_id: str | UUID) -> ProjectRevision:
+        """Read an exact snapshot, never substituting the latest project state."""
+        project = str(_canonical_uuid(project_id, "project_id"))
+        revision = str(_canonical_uuid(revision_id, "revision_id"))
+        record = self._repository.get_project_revision_by_id(project, owner_user_id.strip(), revision)
+        if record is None:
+            raise ProjectStateError("project_revision_not_found", "Project revision not found.")
+        return _revision_from_record(record)
 
     def require_frozen_design_brief(
         self,
@@ -318,6 +337,7 @@ class ProjectStateService:
                 context={"project_id": project},
             )
 
+        revision_uuid = uuid4()
         state = draft.state.model_copy(deep=True)
         metadata = dict(state.assembly_metadata or {})
         supplied_project = str(metadata.get("project_id") or "").strip()
@@ -338,6 +358,8 @@ class ProjectStateService:
             **metadata,
             "project_id": project,
             "revision": 1,
+            "project_revision": 1,
+            "canonical_revision_id": str(revision_uuid),
             "design_brief_id": str(brief_uuid),
             "design_brief_version": design_brief_version,
             "source_job_id": job_id,
@@ -345,7 +367,7 @@ class ProjectStateService:
         normalized_draft = draft.model_copy(update={"state": state, "components": list(state.components)})
         revision = ProjectRevision(
             **normalized_draft.model_dump(),
-            revision_id=uuid4(),
+            revision_id=revision_uuid,
             project_id=project_uuid,
             owner_user_id=owner,
             revision=1,
@@ -366,6 +388,22 @@ class ProjectStateService:
             "payload_json": revision.model_dump(mode="json"),
             "created_at": revision.created_at.isoformat(),
         }
+        overview = getattr(state, "overview", None)
+        brief_payload = getattr(brief_record, "payload_json", None)
+        brief_payload = brief_payload if isinstance(brief_payload, dict) else {}
+        self._repository.upsert_project_identity({
+            "project_id": project,
+            "owner_user_id": owner,
+            "creation_channel": "hosted",
+            "title": str(getattr(overview, "title", "") or "Untitled project"),
+            "prompt": str(brief_payload.get("summary") or ""),
+            "chat_id": brief_payload.get("conversation_id"),
+            "workspace_id": None,
+            "visibility": "public",
+            "status": "active",
+            "created_at": revision.created_at.isoformat(),
+            "updated_at": revision.created_at.isoformat(),
+        })
         saved = self._repository.insert_initial_project_revision(record)
         if saved is not None:
             return ProjectRevisionOutcome(revision=_revision_from_record(saved))
@@ -389,6 +427,8 @@ class ProjectStateService:
         project_id: str | UUID,
         owner_user_id: str,
         source_job_id: str,
+        design_brief_id: str | UUID | None = None,
+        design_brief_version: int | None = None,
     ) -> ProjectRevisionOutcome:
         """Append one immutable revision to an existing canonical project."""
 
@@ -396,45 +436,87 @@ class ProjectStateService:
         project = str(project_uuid)
         owner = str(owner_user_id or "").strip()
         job_id = str(source_job_id or "").strip()
+
         if not owner or not job_id:
-            raise ProjectStateError("invalid_project_revision_identity", "owner_user_id and source_job_id are required.")
+            raise ProjectStateError(
+                "invalid_project_revision_identity",
+                "owner_user_id and source_job_id are required.",
+            )
 
         replay = self.get_by_source_job(project, owner, job_id)
         if replay is not None:
-            return ProjectRevisionOutcome(revision=replay, idempotent_replay=True)
+            return ProjectRevisionOutcome(
+                revision=replay,
+                idempotent_replay=True,
+            )
+
         parent = self.get_latest(project, owner)
+
+        brief_id = (
+            _canonical_uuid(design_brief_id, "design_brief_id")
+            if design_brief_id is not None
+            else parent.design_brief_id
+        )
+
+        brief_version = (
+            int(design_brief_version)
+            if design_brief_version is not None
+            else parent.design_brief_version
+        )
+
         self.get_frozen_design_brief(
             project,
             owner,
-            parent.design_brief_id,
-            parent.design_brief_version,
+            brief_id,
+            brief_version,
         )
+
         next_revision = parent.revision + 1
+
+        revision_uuid = uuid4()
         state = draft.state.model_copy(deep=True)
         metadata = dict(state.assembly_metadata or {})
-        supplied_project = str(metadata.get("project_id") or "").strip()
+
+        supplied_project = str(
+            metadata.get("project_id") or ""
+        ).strip()
+
         if supplied_project and supplied_project != project:
-            raise ProjectStateError("project_revision_identity_mismatch", "Revised state targets a different project.")
+            raise ProjectStateError(
+                "project_revision_identity_mismatch",
+                "Revised state targets a different project.",
+            )
+
         state.assembly_metadata = {
             **metadata,
             "project_id": project,
             "revision": next_revision,
-            "design_brief_id": str(parent.design_brief_id),
-            "design_brief_version": parent.design_brief_version,
+            "project_revision": next_revision,
+            "canonical_revision_id": str(revision_uuid),
+            "design_brief_id": str(brief_id),
+            "design_brief_version": brief_version,
             "source_job_id": job_id,
         }
-        normalized = draft.model_copy(update={"state": state, "components": list(state.components)})
+
+        normalized = draft.model_copy(
+            update={
+                "state": state,
+                "components": list(state.components),
+            }
+        )
+
         revision = ProjectRevision(
             **normalized.model_dump(),
-            revision_id=uuid4(),
+            revision_id=revision_uuid,
             project_id=project_uuid,
             owner_user_id=owner,
             revision=next_revision,
             parent_revision=parent.revision,
-            design_brief_id=parent.design_brief_id,
-            design_brief_version=parent.design_brief_version,
+            design_brief_id=brief_id,
+            design_brief_version=brief_version,
             source_job_id=job_id,
         )
+
         record = {
             "id": str(revision.revision_id),
             "project_id": project,
@@ -447,17 +529,37 @@ class ProjectStateService:
             "payload_json": revision.model_dump(mode="json"),
             "created_at": revision.created_at.isoformat(),
         }
-        saved = self._repository.insert_project_revision(record, parent.revision)
+
+        saved = self._repository.insert_project_revision(
+            record,
+            parent.revision,
+        )
+
         if saved is not None:
-            return ProjectRevisionOutcome(revision=_revision_from_record(saved))
-        replay = self.get_by_source_job(project, owner, job_id)
+            return ProjectRevisionOutcome(
+                revision=_revision_from_record(saved)
+            )
+
+        replay = self.get_by_source_job(
+            project,
+            owner,
+            job_id,
+        )
+
         if replay is not None:
-            return ProjectRevisionOutcome(revision=replay, idempotent_replay=True)
+            return ProjectRevisionOutcome(
+                revision=replay,
+                idempotent_replay=True,
+            )
+
         raise ProjectStateError(
             "project_revision_conflict",
             "Project state changed before the revision could be committed.",
             retryable=True,
-            context={"project_id": project, "parent_revision": parent.revision},
+            context={
+                "project_id": project,
+                "parent_revision": parent.revision,
+            },
         )
 
     @staticmethod

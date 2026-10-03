@@ -8,12 +8,14 @@ from forma_core.config import config as env_config
 import re
 import hashlib
 import base64
+import secrets
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from types import MappingProxyType
+from typing import Any, Iterable, Mapping, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -187,6 +189,32 @@ class UserIntegrationConfig:
             "updated_at": self.updated_at,
             "integrations": [integration.as_json() for integration in self.integrations],
         }
+
+
+@dataclass(frozen=True)
+class ResolvedIntegrationSettings(Mapping[str, str]):
+    """Immutable process-environment snapshot plus one integration overlay."""
+
+    values: Mapping[str, str]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
+
+    def __getitem__(self, key: str) -> str:
+        return self.values[key]
+
+    def __iter__(self):
+        return iter(self.values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+    def get(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        return self.values.get(key, default)
+
+    def as_env(self) -> dict[str, str]:
+        """Return a subprocess-safe copy without exposing it in metadata/logs."""
+        return dict(self.values)
 
 
 INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
@@ -1183,6 +1211,25 @@ def _decrypt_config(token: str) -> UserIntegrationConfig:
     return _decrypt_config_with_secret(token, _integration_encryption_secret())
 
 
+def encrypt_user_secret_text(value: str) -> tuple[str, str]:
+    """Encrypt short server-only payloads with the configured user secret key."""
+    secret = _integration_encryption_secret()
+    token = _fernet_for_secret(secret).encrypt(value.encode("utf-8"))
+    return token.decode("ascii"), _integration_encryption_key_id(secret)
+
+
+def decrypt_user_secret_text(token: str, key_id: str) -> str:
+    """Decrypt a payload and reject values encrypted with another configured key."""
+    secret = _integration_encryption_secret()
+    if not secrets.compare_digest(key_id, _integration_encryption_key_id(secret)):
+        raise RuntimeError("Stored secret text was encrypted with a different FORMA_USER_SECRETS_KEY.")
+    try:
+        plaintext = _fernet_for_secret(secret).decrypt(token.encode("ascii"))
+    except InvalidToken as exc:
+        raise RuntimeError("Stored secret text could not be decrypted with the configured key.") from exc
+    return plaintext.decode("utf-8")
+
+
 class EncryptedFileIntegrationStore(UserIntegrationStore):
     """Fernet-encrypted file storage for local workspace or user settings."""
 
@@ -1480,6 +1527,13 @@ class SupabaseWorkspaceIntegrationStore(UserIntegrationStore):
                 or []
             )
         except Exception as exc:
+            if deployment_mode_enabled():
+                logger.error(
+                    "Supabase workspace integration config load failed for %s; refusing an empty hosted fallback: %s",
+                    self.storage_label,
+                    exc,
+                )
+                raise
             fallback = UserIntegrationConfig()
             logger.warning(
                 "Supabase workspace integration config load failed for %s; using empty runtime config until Supabase is ready: %s",
@@ -1550,12 +1604,19 @@ def _capture_original_environment(env_names: Iterable[str]) -> None:
             _ORIGINAL_ENV_VALUES[env_name] = env_config.get(env_name)
 
 
-def _original_environment_value(env_names: Iterable[str]) -> Optional[str]:
+def _environment_value(
+    env_names: Iterable[str],
+    environment: Mapping[str, Optional[str]],
+) -> Optional[str]:
     for env_name in env_names:
-        value = _ORIGINAL_ENV_VALUES.get(env_name)
+        value = environment.get(env_name)
         if value and value.strip():
             return value.strip()
     return None
+
+
+def _original_environment_value(env_names: Iterable[str]) -> Optional[str]:
+    return _environment_value(env_names, _ORIGINAL_ENV_VALUES)
 
 
 def _disabled_flag(value: Optional[str]) -> bool:
@@ -1612,17 +1673,21 @@ def _values_configure_integration(
     return runtime_provider == definition.id and bool((generic_key or "").strip())
 
 
-def _environment_configures_integration(definition: IntegrationDefinition) -> bool:
+def _environment_configures_integration(
+    definition: IntegrationDefinition,
+    environment: Optional[Mapping[str, Optional[str]]] = None,
+) -> bool:
+    source = environment if environment is not None else _ORIGINAL_ENV_VALUES
     values = {
         field.id: value
         for field in definition.fields
-        if (value := (_original_environment_value(field.env_names) or "").strip())
+        if (value := (_environment_value(field.env_names, source) or "").strip())
     }
     return _values_configure_integration(
         definition,
         values,
-        runtime_provider=_normalize_provider_id(_ORIGINAL_ENV_VALUES.get("LLM_PROVIDER") or ""),
-        generic_key=_ORIGINAL_ENV_VALUES.get("LLM_API_KEY"),
+        runtime_provider=_normalize_provider_id(source.get("LLM_PROVIDER") or ""),
+        generic_key=source.get("LLM_API_KEY"),
     )
 
 
@@ -1696,7 +1761,11 @@ def _merge_csv_value(existing: Optional[str], values: Iterable[str]) -> str:
     return ",".join(merged)
 
 
-def _desired_environment(config: UserIntegrationConfig) -> dict[str, str]:
+def _desired_environment(
+    config: UserIntegrationConfig,
+    *,
+    environment: Optional[Mapping[str, str]] = None,
+) -> dict[str, str]:
     desired: dict[str, str] = {}
     allowed_providers: set[str] = set()
     allowed_models_by_provider: dict[str, set[str]] = {}
@@ -1779,7 +1848,7 @@ def _desired_environment(config: UserIntegrationConfig) -> dict[str, str]:
     elif (
         inferred_image_provider
         and not desired.get("IMAGE_PROVIDER")
-        and not _ORIGINAL_ENV_VALUES.get("IMAGE_PROVIDER")
+        and not (environment or _ORIGINAL_ENV_VALUES).get("IMAGE_PROVIDER")
     ):
         desired["IMAGE_PROVIDER"] = inferred_image_provider
 
@@ -1795,6 +1864,36 @@ def _desired_environment(config: UserIntegrationConfig) -> dict[str, str]:
     return desired
 
 
+def resolve_user_integration_settings(
+    store: Optional[UserIntegrationStore] = None,
+    *,
+    fail_open: bool = True,
+) -> ResolvedIntegrationSettings:
+    """Resolve one request's provider settings without mutating the process environment."""
+    resolved_store = store or default_integration_store()
+    try:
+        integration_config = resolved_store.load()
+    except Exception as exc:
+        if not fail_open or deployment_mode_enabled():
+            raise
+        logger.warning(
+            "Integration config load failed from %s; using empty runtime config: %s",
+            getattr(resolved_store, "storage_label", getattr(resolved_store, "path", "unknown")),
+            exc,
+        )
+        integration_config = UserIntegrationConfig()
+
+    environment = env_config.snapshot()
+    desired = _desired_environment(integration_config, environment=environment)
+    additive_env_names = {"LLM_ALLOWED_PROVIDERS", *PROVIDER_ALLOWED_MODEL_ENV.values()}
+    for env_name in additive_env_names:
+        desired_value = desired.get(env_name)
+        if desired_value:
+            desired[env_name] = _merge_csv_value(environment.get(env_name), desired_value.split(","))
+    environment.update(desired)
+    return ResolvedIntegrationSettings(environment)
+
+
 def apply_user_integrations_to_environment(
     store: Optional[UserIntegrationStore] = None,
     *,
@@ -1804,7 +1903,7 @@ def apply_user_integrations_to_environment(
     try:
         config = resolved_store.load()
     except Exception as exc:
-        if not fail_open:
+        if not fail_open or deployment_mode_enabled():
             raise
         logger.warning(
             "Integration config load failed from %s; using empty runtime config: %s",
@@ -1852,10 +1951,14 @@ def _field_status_payload(
     *,
     integration_id: str,
     hosted_user_store: bool = False,
+    environment: Optional[Mapping[str, Optional[str]]] = None,
 ) -> dict[str, object]:
     stored_value = integration.field_value(field_definition.id) if integration else None
     saved_value = stored_value if integration and integration.enabled else None
-    environment_value = _original_environment_value(field_definition.env_names)
+    environment_value = _environment_value(
+        field_definition.env_names,
+        environment if environment is not None else _ORIGINAL_ENV_VALUES,
+    )
     policy = _active_hosted_byok_policy(integration_id) if hosted_user_store else None
     blocked_by_policy = bool(policy and field_definition.id in policy.blocked_secret_fields)
     conditional_by_policy = bool(policy and field_definition.id in policy.conditional_secret_fields)
@@ -1890,20 +1993,22 @@ def _field_status_payload(
 
 def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> dict[str, object]:
     resolved_store = store or default_integration_store()
-    config = apply_user_integrations_to_environment(resolved_store, fail_open=False)
+    config = resolved_store.load()
+    environment = env_config.snapshot()
     hosted_user_store = isinstance(resolved_store, SupabaseUserIntegrationStore) or bool(
         getattr(resolved_store, "user_scoped", False)
     )
     integrations: list[dict[str, object]] = []
     for definition in INTEGRATION_DEFINITIONS:
         stored = config.integration_by_id(definition.id)
-        environment_configured = _environment_configures_integration(definition)
+        environment_configured = _environment_configures_integration(definition, environment)
         configured_fields = [
             _field_status_payload(
                 stored,
                 field_definition,
                 integration_id=definition.id,
                 hosted_user_store=hosted_user_store,
+                environment=environment,
             )
             for field_definition in definition.fields
         ]
@@ -1942,11 +2047,13 @@ __all__ = [
     "IntegrationFieldDefinition",
     "StoredIntegration",
     "StoredIntegrationField",
+    "ResolvedIntegrationSettings",
     "SupabaseUserIntegrationStore",
     "SupabaseWorkspaceIntegrationStore",
     "UserIntegrationConfig",
     "UserIntegrationStore",
     "apply_user_integrations_to_environment",
+    "resolve_user_integration_settings",
     "default_integration_store",
     "default_user_integrations_path",
     "encrypted_user_integrations_path",
@@ -1955,6 +2062,8 @@ __all__ = [
     "integration_status_payload",
     "list_integration_definitions",
     "mask_secret",
+    "encrypt_user_secret_text",
+    "decrypt_user_secret_text",
     "require_user_secrets_key",
     "user_integrations_path_for_user",
 ]

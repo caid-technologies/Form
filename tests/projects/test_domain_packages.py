@@ -13,13 +13,13 @@ from forma_core.workspaces.chats.models import (
 )
 from forma_core.workspaces.models import Workspace
 from forma_core.workspaces.projects.iteration import ProjectIterator
-from forma_core.workspaces.projects.models import HardwareIR, Project
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, Project
 from forma_core.workspaces.projects.objects import build_project_object
 
 
 class DomainPackageTests(unittest.TestCase):
     def test_project_and_signup_models_have_canonical_domain_modules(self) -> None:
-        self.assertEqual("forma_core.workspaces.projects.models", HardwareIR.__module__)
+        self.assertEqual("forma_core.workspaces.projects.models", HardwareIntermediateRepresentation.__module__)
         self.assertEqual("forma_core.workspaces.projects.iteration", ProjectIterator.__module__)
         self.assertEqual("forma_core.workspaces.projects.objects", build_project_object.__module__)
         self.assertEqual("forma_core.signups.models", AlphaSignupRequest.__module__)

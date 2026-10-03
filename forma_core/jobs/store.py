@@ -14,6 +14,13 @@ from forma_core.jobs.repositories import (
 )
 from forma_core.jobs.source_usage import infer_source_usage
 from forma_core.persistence.providers import SQLiteProvider, SupabaseProvider, create_sqlite_provider
+from forma_core.debug import (
+    new_error_correlation_id,
+    public_error_message,
+    redact_debug_text,
+    redact_debug_value,
+    redact_error_value,
+)
 
 load_dotenv()
 
@@ -25,11 +32,28 @@ def _utc_now() -> str:
 
 
 def _redact_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
-    redacted = dict(payload or {})
+    redacted = redact_debug_value(dict(payload or {}))
     if redacted.get("image_data"):
         redacted["image_data"] = "<redacted>"
         redacted["image_data_present"] = True
     return redacted
+
+
+def _persisted_error_debug(
+    error_debug: Optional[Dict[str, Any]],
+    correlation_id: str,
+    error_code: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    if not error_debug and not error_code:
+        return None
+    payload: Dict[str, Any] = {
+        "correlation_id": correlation_id,
+    }
+    if error_code:
+        payload["code"] = str(error_code)[:80]
+    if error_debug:
+        payload["error_type"] = str(error_debug.get("error_type") or "Error")
+    return payload
 
 
 def _operation_summary(operations: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -202,6 +226,12 @@ class JobMetadataStore:
         config.update({"table": "a2a_jobs", "scope": "standalone" if self._standalone else "primary"})
         return config
 
+    def close(self) -> None:
+        """Release a standalone SQLite provider owned by this store."""
+
+        if self._standalone and isinstance(self._provider, SQLiteProvider):
+            self._provider.dispose()
+
     def init_db(self) -> None:
         if self._initialized:
             return
@@ -222,9 +252,11 @@ class JobMetadataStore:
         payload: Dict[str, Any],
         server_owned: bool,
         status: str = "queued",
+        replace_existing: bool = True,
     ) -> Dict[str, Any]:
         self.init_db()
         now = _utc_now()
+        correlation_id = correlation_id or new_error_correlation_id()
         source_usage = infer_source_usage(action=action, payload=payload)
         assert self._repository is not None
         self._repository.create(
@@ -247,7 +279,8 @@ class JobMetadataStore:
                 "progress_events_json": [],
                 "error_debug_json": None,
                 "error": None,
-            }
+            },
+            replace_existing=replace_existing,
         )
         return self.get_job(job_id) or {}
 
@@ -256,6 +289,7 @@ class JobMetadataStore:
         now = _utc_now()
         event_payload = dict(event or {})
         event_payload.setdefault("observed_at", now)
+        event_payload = redact_error_value(event_payload)
         assert self._repository is not None
         self._repository.append_progress_event(job_id, event_payload, now)
 
@@ -283,7 +317,7 @@ class JobMetadataStore:
     ) -> None:
         self.init_db()
         now = _utc_now()
-        result_summary = summarize_result(result)
+        result_summary = redact_error_value(summarize_result(result))
         current = self.get_job(job_id) or {}
         if str(current.get("status") or "").lower() in {"cancelled", "canceled"}:
             return
@@ -309,12 +343,24 @@ class JobMetadataStore:
             },
         )
 
-    def mark_failed(self, job_id: str, error: str, error_debug: Optional[Dict[str, Any]] = None) -> None:
+    def mark_failed(
+        self,
+        job_id: str,
+        error: str,
+        error_debug: Optional[Dict[str, Any]] = None,
+        *,
+        error_code: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+    ) -> None:
         self.init_db()
         now = _utc_now()
         current = self.get_job(job_id) or {}
         if str(current.get("status") or "").lower() in {"cancelled", "canceled"}:
             return
+        resolved_correlation_id = str(
+            correlation_id or current.get("correlation_id") or new_error_correlation_id()
+        )
+        safe_error = public_error_message(error_code or "internal_error", error)
         assert self._repository is not None
         self._repository.complete(
             job_id,
@@ -323,8 +369,9 @@ class JobMetadataStore:
                 "status": "failed",
                 "completed_at": now,
                 "updated_at": now,
-                "error_debug_json": error_debug,
-                "error": error,
+                "correlation_id": resolved_correlation_id,
+                "error_debug_json": _persisted_error_debug(error_debug, resolved_correlation_id, error_code),
+                "error": safe_error,
             },
         )
 
@@ -333,7 +380,7 @@ class JobMetadataStore:
         self.init_db()
         now = _utc_now()
         assert self._repository is not None
-        return self._repository.cancel(job_id, now, reason)
+        return self._repository.cancel(job_id, now, redact_debug_text(reason))
 
     def is_cancelled(self, job_id: str) -> bool:
         job = self.get_job(job_id)

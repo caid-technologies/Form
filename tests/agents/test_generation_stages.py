@@ -22,8 +22,11 @@ from forma_core.agents.web_research_workflow import (
 from forma_core.external_sources import ExternalSourceLibrary
 from forma_core.workspaces.projects.models import (
     ComponentInstance,
+    ConnectionNet,
     FunctionalRequirements,
     MechanicalNotes,
+    PinDefinition,
+    PinReference,
     ProjectOverview,
     SystemArchitecture,
     SystemNode,
@@ -63,6 +66,17 @@ def component_selection() -> WebComponentSelection:
             category="Microcontroller",
             unit_price=4.0,
             rationale="Controls the robot.",
+            pins=[
+                PinDefinition(pin_id="VCC", name="Power", pin_type="Power", voltage=5),
+                PinDefinition(pin_id="GND", name="Ground", pin_type="Ground"),
+            ],
+        ),
+        ComponentInstance(
+            ref_des="J1", name="Power input", category="Connector", rationale="Supplies the controller",
+            pins=[
+                PinDefinition(pin_id="VCC", name="Power", pin_type="Power", voltage=5),
+                PinDefinition(pin_id="GND", name="Ground", pin_type="Ground"),
+            ],
         )
     ])
 
@@ -77,6 +91,15 @@ def mechanical_plan() -> MechanicalNotes:
 
 
 class GenerationStageRunTests(unittest.TestCase):
+    def test_component_stage_snapshots_preserve_electrical_details(self) -> None:
+        for schema in (DefaultComponentSelection, WebComponentSelection):
+            with self.subTest(schema=schema.__name__):
+                selection = schema(components=component_selection().components)
+                restored = schema.model_validate_json(selection.model_dump_json())
+                self.assertEqual(selection.components, restored.components)
+                self.assertEqual("Microcontroller", restored.components[0].category)
+                self.assertEqual(2, len(restored.components[0].pins))
+
     def test_stage_failure_blocks_dependents_but_runs_independent_work(self) -> None:
         checkpoints: list[dict] = []
         run = GenerationStageRun(
@@ -176,7 +199,7 @@ class WebResearchPartialGenerationTests(unittest.TestCase):
         self.assertEqual("blocked", records["validation_repair"]["status"])
         self.assertEqual("succeeded", records["mechanical_fabrication"]["status"])
         self.assertEqual("blocked", records["assembly"]["status"])
-        self.assertEqual(1, len(ir.bom))
+        self.assertEqual(2, len(ir.bom))
         self.assertIsNotNone(ir.mechanical)
         self.assertGreater(len(saved), 4)
         component_checkpoint = next(
@@ -186,7 +209,7 @@ class WebResearchPartialGenerationTests(unittest.TestCase):
             .get("web_component_sourcing", {})
             .get("status") == "succeeded"
         )
-        self.assertEqual(1, len(component_checkpoint["bom"]))
+        self.assertEqual(2, len(component_checkpoint["bom"]))
 
     def test_retry_reuses_upstream_and_independent_artifacts(self) -> None:
         pipeline, _ = self.pipeline()
@@ -207,7 +230,11 @@ class WebResearchPartialGenerationTests(unittest.TestCase):
         pipeline._plan_project = lambda *_: (_ for _ in ()).throw(AssertionError("architecture repeated"))
         pipeline._select_components = lambda *_: (_ for _ in ()).throw(AssertionError("components repeated"))
         pipeline._generate_mechanical = lambda *_: (_ for _ in ()).throw(AssertionError("mechanical repeated"))
-        pipeline._wire_project = lambda *args: WiringWrapper(nets=[], pin_mappings=[])
+        pipeline._wire_project = lambda *args: WiringWrapper(nets=[
+            ConnectionNet(net_id=pin_id, name=pin_id, net_type=net_type, pins=[
+                PinReference(ref_des=ref, pin_id=pin_id) for ref in ("U1", "J1")
+            ]) for pin_id, net_type in (("VCC", "Power"), ("GND", "Ground"))
+        ], pin_mappings=[])
 
         completed = pipeline._generate_staged_project(
             "Build a four wheel robot",
@@ -217,7 +244,9 @@ class WebResearchPartialGenerationTests(unittest.TestCase):
         )
 
         records = completed.assembly_metadata["generation_run"]["records"]
-        self.assertEqual("succeeded", completed.assembly_metadata["generation_status"])
+        self.assertEqual("succeeded", completed.assembly_metadata["generation_status"], {
+            key: record.get("error") for key, record in records.items() if record["status"] == "failed"
+        })
         self.assertEqual("complete", completed.assembly_metadata["project_readiness"])
         self.assertEqual(1, records["web_architect"]["attempt"])
         self.assertEqual(1, records["web_component_sourcing"]["attempt"])
@@ -302,7 +331,7 @@ class DefaultPartialGenerationTests(unittest.TestCase):
         self.assertEqual("succeeded", records["bom"]["status"])
         self.assertEqual("succeeded", records["mechanical_fabrication"]["status"])
         self.assertEqual("blocked", records["assembly"]["status"])
-        self.assertEqual(1, len(partial.bom))
+        self.assertEqual(2, len(partial.bom))
         self.assertTrue(any(
             checkpoint.get("record", {}).get("stage_id") == "component_selection"
             and checkpoint["record"]["status"] == "succeeded"

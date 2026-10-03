@@ -174,16 +174,17 @@ class CheckpointThenFailWorker(FakeWorker):
 class WorkerOrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
-        provider = create_sqlite_provider(
+        self.provider = create_sqlite_provider(
             source="worker orchestrator test",
             url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
-        provider.initialize()
-        self.repository = SqlAlchemyRepository(provider.session_factory)
+        self.provider.initialize()
+        self.repository = SqlAlchemyRepository(self.provider.session_factory)
         self.workflow = ProjectWorkflowService(self.repository)
 
     def tearDown(self) -> None:
+        self.provider.dispose()
         self.directory.cleanup()
 
     def enter_building(self) -> None:

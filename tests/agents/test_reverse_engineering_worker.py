@@ -98,13 +98,13 @@ class FindingsConsumerWorker:
 class ReverseEngineeringWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
-        provider = create_sqlite_provider(
+        self.provider = create_sqlite_provider(
             source="reverse-engineering worker test",
             url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
-        provider.initialize()
-        self.repository = SqlAlchemyRepository(provider.session_factory)
+        self.provider.initialize()
+        self.repository = SqlAlchemyRepository(self.provider.session_factory)
         self.state = ProjectStateService(self.repository)
         self.workflow = ProjectWorkflowService(self.repository)
         self.project_id = uuid.uuid4()
@@ -120,6 +120,7 @@ class ReverseEngineeringWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase)
         )
 
     def tearDown(self) -> None:
+        self.provider.dispose()
         self.directory.cleanup()
 
     def _persist_brief(self) -> DesignBrief:

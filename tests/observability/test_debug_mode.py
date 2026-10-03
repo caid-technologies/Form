@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 from contextlib import contextmanager
 from typing import Any, Iterator
 
 from forma_core.jobs.store import JobMetadataStore
-from forma_core.debug import api_error_detail, exception_debug_payload, redact_debug_value
+from forma_core.debug import api_error_detail, exception_debug_payload, redact_debug_value, redact_error_value
 
 
 DEBUG_ENV_KEYS = ("FORMA_DEBUG", "FORMA_DEBUG_MODE", "API_DEBUG", "DEBUG")
@@ -140,32 +139,52 @@ class DebugModeTests(unittest.TestCase):
         self.assertEqual("<redacted>", redacted["nested"]["token"])
         self.assertEqual("visible", redacted["ok"])
 
-    def test_failed_job_persists_debug_payload_when_provided(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".db") as file:
-            store = JobMetadataStore(file.name, backend="sqlite")
-            store.create_job(
-                job_id="job_debug_test",
-                message_id="msg_debug_test",
-                correlation_id=None,
-                action="forma.generate_project",
-                sender="test",
-                recipient="forma",
-                payload={"prompt": "blink an LED", "image_data": "data:image/png;base64,abc"},
-                server_owned=True,
-            )
-            try:
-                raise ValueError("bad runtime")
-            except ValueError as exc:
-                store.mark_failed("job_debug_test", str(exc), exception_debug_payload(exc, context={"api_key": "sk-testsecret123456"}))
+    def test_redact_error_value_removes_error_details_and_sensitive_text(self) -> None:
+        redacted = redact_error_value(
+            {
+                "error": "provider response=secret body",
+                "path": r"C:\\secrets\\forma.db",
+                "database": "sqlite database locked",
+                "prompt": "Build a private sensor",
+            }
+        )
 
-            job = store.get_job("job_debug_test")
+        self.assertEqual("<redacted>", redacted["error"])
+        self.assertNotIn("forma.db", str(redacted))
+        self.assertNotIn("sqlite database locked", str(redacted))
+        self.assertEqual("<redacted>", redacted["prompt"])
+
+    def test_failed_job_persists_debug_payload_when_provided(self) -> None:
+        store = JobMetadataStore(":memory:", backend="sqlite")
+        store.create_job(
+            job_id="job_debug_test",
+            message_id="msg_debug_test",
+            correlation_id=None,
+            action="forma.generate_project",
+            sender="test",
+            recipient="forma",
+            payload={"prompt": "blink an LED", "image_data": "data:image/png;base64,abc"},
+            server_owned=True,
+        )
+        try:
+            raise ValueError("bad runtime")
+        except ValueError as exc:
+            store.mark_failed(
+                "job_debug_test",
+                str(exc),
+                exception_debug_payload(exc, context={"api_key": "sk-testsecret123456"}),
+                error_code="generation_failed",
+            )
+
+        job = store.get_job("job_debug_test")
 
         self.assertIsNotNone(job)
         assert job is not None
         self.assertEqual("failed", job["status"])
-        self.assertEqual("bad runtime", job["error"])
+        self.assertEqual("Generation could not be completed.", job["error"])
+        self.assertEqual("generation_failed", job["error_debug"]["code"])
         self.assertEqual("ValueError", job["error_debug"]["error_type"])
-        self.assertEqual("<redacted>", job["error_debug"]["context"]["api_key"])
+        self.assertRegex(job["error_debug"]["correlation_id"], r"^err_[0-9a-f]{32}$")
         self.assertEqual("<redacted>", job["payload"]["image_data"])
 
     def test_supabase_create_job_fails_when_required_schema_column_is_missing(self) -> None:

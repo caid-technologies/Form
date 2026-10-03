@@ -346,7 +346,7 @@ def _find_project_image_key(project_id: str, prefix: str, bucket: str) -> Option
     return f"{folder}/{item['name']}", item
 
 
-def hydrate_image_storage_metadata(metadata: Dict[str, Any], project_id: Optional[str] = None) -> Dict[str, Any]:
+def hydrate_image_storage_metadata(metadata: Dict[str, Any], project_id: Optional[str] = None, *, discover_missing: bool = True) -> Dict[str, Any]:
     metadata = dict(metadata or {})
     config = get_image_storage_config()
     if config.get("write_method") != "supabase-client":
@@ -371,7 +371,7 @@ def hydrate_image_storage_metadata(metadata: Dict[str, Any], project_id: Optiona
 
         image_bucket = metadata.get(bucket_name) or bucket
         image_key = metadata.get(key_name)
-        if not image_key and project_id:
+        if not image_key and project_id and discover_missing:
             try:
                 found = _find_project_image_key(project_id, object_prefix, image_bucket)
             except Exception:

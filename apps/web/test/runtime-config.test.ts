@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { generationLlmImageSupport, shouldShowProductImageSection } from "../lib/active-llms";
-import { usableRuntimeLlmOptions, type RuntimeConfigContract } from "../lib/config";
+import { authoringModeEnabled, usableRuntimeLlmOptions, type RuntimeConfigContract } from "../lib/config";
 
 function contract(): RuntimeConfigContract {
   return {
@@ -89,4 +89,26 @@ test("an existing or requested product image still appears even without image-ca
     llms: [{ provider: "cloudflare", model: "nvidia/nemotron-3-super-120b-a12b" }],
     metadata: { image_output_status: "failed" },
   }), true);
+});
+
+test("authoring mode is disabled unless the backend explicitly enables it", () => {
+  assert.equal(authoringModeEnabled(contract()), false);
+  assert.equal(authoringModeEnabled({ ...contract(), deployment: { hosted_chat_enabled: true } }), false);
+  assert.equal(authoringModeEnabled({ ...contract(), deployment: { authoring_mode_enabled: false } }), false);
+});
+
+test("the runtime contract surfaces an enabled authoring mode", () => {
+  const enabled = authoringModeEnabled({
+    ...contract(),
+    deployment: { authoring_mode_enabled: true, authoring_access: true },
+  });
+
+  assert.equal(enabled, true);
+});
+
+test("authoring mode stays disabled for authenticated users without backend access", () => {
+  assert.equal(authoringModeEnabled({
+    ...contract(),
+    deployment: { authoring_mode_enabled: true, authoring_access: false },
+  }), false);
 });

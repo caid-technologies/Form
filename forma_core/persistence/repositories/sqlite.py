@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -11,20 +14,31 @@ from forma_core.persistence.models import (
     DBComponentTemplate,
     DBDesignBrief,
     DBGeneratedProject,
+    DBProject,
     DBProjectContributionConsent,
     DBProjectContributionSnapshot,
     DBProjectChat,
     DBProjectBuild,
     DBProjectDeletionAudit,
+    DBProjectPublishAudit,
     DBProjectRemix,
     DBProjectSave,
     DBProjectWorkflow,
     DBProjectWorkflowTransition,
     DBProjectRevision,
+    DBCliProject,
+    DBCliProjectDelivery,
+    DBCliProjectRevision,
+    DBCliDeviceAuthorization,
+    DBCliTokenSession,
     DBProjectValidationReport,
     DBWorkerExecutionPlan,
     DBUserSettings,
 )
+from forma_core.workspaces.projects.manifest import build_canonical_revision_record
+
+
+logger = logging.getLogger(__name__)
 
 
 class SqlAlchemyRepository:
@@ -54,12 +68,134 @@ class SqlAlchemyRepository:
         with self._session() as session, session.begin():
             session.add(DBComponentTemplate(**record))
 
+    def upsert_project_identity(self, record: Dict[str, Any]) -> Any:
+        with self._session() as session, session.begin():
+            project = session.query(DBProject).filter(DBProject.project_id == record["project_id"]).first()
+            if project is None:
+                project = DBProject(**record)
+                session.add(project)
+            else:
+                for key, value in record.items():
+                    if key != "project_id":
+                        setattr(project, key, value)
+            return project
+
+    def get_project_identity(self, project_id: str) -> Optional[Any]:
+        with self._session() as session:
+            project = session.query(DBProject).filter(DBProject.project_id == project_id).first()
+            return {
+                column.name: getattr(project, column.name)
+                for column in DBProject.__table__.columns
+            } if project is not None else None
+
+    def list_project_identities(self, owner_user_id: str) -> List[Any]:
+        with self._session() as session:
+            return session.query(DBProject).filter(
+                DBProject.owner_user_id == owner_user_id,
+                DBProject.status == "active",
+            ).order_by(DBProject.updated_at.desc()).all()
+
+    def list_project_gallery_inventory_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+        search: Optional[str] = None,
+    ) -> tuple[List[Any], int]:
+        """Read one bounded, privacy-filtered canonical gallery page."""
+        filters = ["status = :status"]
+        parameters: Dict[str, Any] = {
+            "status": "active",
+            "limit": max(1, int(limit)),
+            "offset": max(0, int(offset)),
+        }
+        if owner_user_id:
+            filters.append("owner_user_id = :owner_user_id")
+            parameters["owner_user_id"] = owner_user_id
+        if visibility:
+            filters.append("visibility = :visibility")
+            parameters["visibility"] = visibility
+        if search:
+            filters.append("(lower(title) like lower(:search) or lower(prompt) like lower(:search))")
+            parameters["search"] = f"%{search}%"
+        where = " AND ".join(filters)
+        with self._session() as session:
+            total = session.execute(
+                text(f"SELECT COUNT(*) FROM project_gallery_inventory WHERE {where}"),
+                parameters,
+            ).scalar_one()
+            rows = session.execute(
+                text(
+                    "SELECT project_id, owner_user_id, creation_channel, title, prompt, chat_id, "
+                    "workspace_id, visibility, status, created_at, updated_at, source, revision_id, "
+                    "revision, revision_payload_json, revision_created_at, legacy_hardware_ir, legacy_id "
+                    f"FROM project_gallery_inventory WHERE {where} "
+                    "ORDER BY updated_at DESC, project_id DESC LIMIT :limit OFFSET :offset"
+                ),
+                parameters,
+            ).mappings().all()
+            return [SimpleNamespace(**dict(row)) for row in rows], int(total or 0)
+
+    def list_project_gallery_inventory(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        search: Optional[str] = None,
+    ) -> List[Any]:
+        filters = ["status = :status"]
+        parameters: Dict[str, Any] = {"status": "active"}
+        if owner_user_id:
+            filters.append("owner_user_id = :owner_user_id")
+            parameters["owner_user_id"] = owner_user_id
+        if visibility:
+            filters.append("visibility = :visibility")
+            parameters["visibility"] = visibility
+        if search:
+            filters.append("(lower(title) like lower(:search) or lower(prompt) like lower(:search))")
+            parameters["search"] = f"%{search}%"
+        where = " AND ".join(filters)
+        with self._session() as session:
+            rows = session.execute(
+                text(
+                    "SELECT project_id, owner_user_id, creation_channel, title, prompt, chat_id, "
+                    "workspace_id, visibility, status, created_at, updated_at, source, revision_id, "
+                    "revision, revision_payload_json, revision_created_at, legacy_hardware_ir, legacy_id "
+                    f"FROM project_gallery_inventory WHERE {where} "
+                    "ORDER BY updated_at DESC, project_id DESC"
+                ),
+                parameters,
+            ).mappings().all()
+            return [SimpleNamespace(**dict(row)) for row in rows]
+
     def save_generated_project(
         self,
         record: Dict[str, Any],
         chat_record: Optional[Dict[str, Any]],
     ) -> None:
         with self._session() as session, session.begin():
+            identity = session.query(DBProject).filter(DBProject.project_id == record["project_id"]).first()
+            identity_record = {
+                "project_id": record["project_id"],
+                "owner_user_id": record.get("owner_user_id"),
+                "creation_channel": record.get("creation_channel", "hosted"),
+                "title": record.get("title", ""),
+                "prompt": record.get("prompt", ""),
+                "chat_id": record.get("chat_id"),
+                "workspace_id": None,
+                "visibility": record.get("visibility", "public"),
+                "status": record.get("status", "active"),
+                "created_at": record["created_at"],
+                "updated_at": record["created_at"],
+            }
+            if identity is None:
+                session.add(DBProject(**identity_record))
+            else:
+                for key, value in identity_record.items():
+                    if key != "project_id":
+                        setattr(identity, key, value)
             session.add(DBGeneratedProject(**record))
             if not chat_record:
                 return
@@ -359,6 +495,24 @@ class SqlAlchemyRepository:
                 .first()
             )
 
+    def list_project_revisions(self, project_id: str, owner_user_id: str, *, limit: int, before: int | None = None) -> List[Any]:
+        with self._session() as session:
+            query = session.query(DBProjectRevision).filter(
+                DBProjectRevision.project_id == project_id,
+                DBProjectRevision.owner_user_id == owner_user_id,
+            )
+            if before is not None:
+                query = query.filter(DBProjectRevision.revision < before)
+            return query.order_by(DBProjectRevision.revision.desc()).limit(limit).all()
+
+    def get_project_revision_by_id(self, project_id: str, owner_user_id: str, revision_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBProjectRevision).filter(
+                DBProjectRevision.project_id == project_id,
+                DBProjectRevision.owner_user_id == owner_user_id,
+                DBProjectRevision.id == revision_id,
+            ).first()
+
     def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]:
         with self._session() as session:
             rows = (
@@ -420,6 +574,298 @@ class SqlAlchemyRepository:
                 return revision
         except IntegrityError:
             return None
+
+    def get_cli_project(self, project_id: str, owner_user_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBCliProject).filter(
+                DBCliProject.project_id == project_id,
+                DBCliProject.owner_user_id == owner_user_id,
+            ).first()
+
+    def list_cli_projects(self, owner_user_id: str) -> List[Any]:
+        with self._session() as session:
+            return session.query(DBCliProject).filter(
+                DBCliProject.owner_user_id == owner_user_id,
+            ).order_by(DBCliProject.updated_at.desc()).all()
+
+    def get_cli_project_revision(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        revision_id: Optional[str] = None,
+    ) -> Optional[Any]:
+        with self._session() as session:
+            query = session.query(DBCliProjectRevision).filter(
+                DBCliProjectRevision.project_id == project_id,
+                DBCliProjectRevision.owner_user_id == owner_user_id,
+            )
+            if revision_id:
+                query = query.filter(DBCliProjectRevision.revision_id == revision_id)
+            return query.order_by(DBCliProjectRevision.revision.desc()).first()
+
+    def insert_cli_project_revision(
+        self,
+        project_record: Dict[str, Any],
+        revision_record: Dict[str, Any],
+        expected_revision_id: Optional[str],
+    ) -> Optional[Any]:
+        try:
+            with self._session() as session, session.begin():
+                identity = session.query(DBProject).filter(
+                    DBProject.project_id == project_record["project_id"],
+                ).first()
+                if identity is not None and identity.status != "active":
+                    return None
+                project = session.query(DBCliProject).filter(
+                    DBCliProject.project_id == project_record["project_id"],
+                ).first()
+                if project is None:
+                    if expected_revision_id is not None:
+                        return None
+                    project = DBCliProject(**project_record)
+                    session.add(project)
+                elif (
+                    project.owner_user_id != project_record["owner_user_id"]
+                    or project.current_revision_id != expected_revision_id
+                    or project.current_revision + 1 != revision_record["revision"]
+                ):
+                    return None
+                identity_record = {
+                    "project_id": project_record["project_id"],
+                    "owner_user_id": project_record["owner_user_id"],
+                    "creation_channel": "cli",
+                    "title": project_record["title"],
+                    "prompt": str((revision_record.get("manifest_json") or {}).get("prompt") or ""),
+                    "chat_id": None,
+                    "workspace_id": project_record.get("workspace_id"),
+                    "visibility": project_record.get("visibility", "public"),
+                    "status": "active",
+                    "current_revision": revision_record["revision"],
+                    "current_revision_id": revision_record["revision_id"],
+                    "created_at": project_record["created_at"],
+                    "updated_at": revision_record["created_at"],
+                }
+                if identity is None:
+                    session.add(DBProject(**identity_record))
+                else:
+                    for key, value in identity_record.items():
+                        if key != "project_id":
+                            setattr(identity, key, value)
+                revision = DBCliProjectRevision(**revision_record)
+                session.add(revision)
+                canonical_revision = build_canonical_revision_record(project_record, revision_record)
+                if canonical_revision is not None:
+                    session.add(DBProjectRevision(**canonical_revision))
+                else:
+                    logger.info(
+                        "cli_project_canonical_revision_skipped project_id=%s reason=legacy_identifier_or_invalid_ir",
+                        project_record["project_id"],
+                    )
+                project.workspace_id = project_record["workspace_id"]
+                project.title = project_record["title"]
+                project.current_revision = revision_record["revision"]
+                project.current_revision_id = revision_record["revision_id"]
+                project.updated_at = revision_record["created_at"]
+                session.flush()
+                session.refresh(revision)
+                session.expunge(revision)
+                return revision
+        except IntegrityError:
+            return None
+
+    def get_cli_project_delivery(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        idempotency_key: str,
+    ) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBCliProjectDelivery).filter(
+                DBCliProjectDelivery.project_id == project_id,
+                DBCliProjectDelivery.owner_user_id == owner_user_id,
+                DBCliProjectDelivery.idempotency_key == idempotency_key,
+            ).first()
+
+    def get_cli_project_delivery_by_id(self, delivery_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBCliProjectDelivery).filter(
+                DBCliProjectDelivery.delivery_id == delivery_id
+            ).first()
+
+    def list_cli_project_deliveries(self, owner_user_id: str) -> List[Any]:
+        with self._session() as session:
+            return (
+                session.query(DBCliProjectDelivery)
+                .filter(DBCliProjectDelivery.owner_user_id == owner_user_id)
+                .order_by(DBCliProjectDelivery.created_at.desc())
+                .all()
+            )
+
+    def insert_cli_project_delivery(self, record: Dict[str, Any]) -> Any:
+        try:
+            with self._session() as session, session.begin():
+                delivery = DBCliProjectDelivery(**record)
+                session.add(delivery)
+                session.flush()
+                session.refresh(delivery)
+                session.expunge(delivery)
+                return delivery
+        except IntegrityError:
+            return self.get_cli_project_delivery(
+                record["project_id"],
+                record["owner_user_id"],
+                record["idempotency_key"],
+            )
+
+    def update_cli_project_visibility(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        visibility: str,
+    ) -> Optional[Any]:
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        try:
+            with self._session() as session, session.begin():
+                project = session.query(DBCliProject).filter(
+                    DBCliProject.project_id == project_id,
+                    DBCliProject.owner_user_id == owner_user_id,
+                ).first()
+                if project is None:
+                    return None
+                project.visibility = visibility
+                project.updated_at = now
+                session.flush()
+                session.refresh(project)
+                session.expunge(project)
+                return project
+        except IntegrityError:
+            return None
+
+    def update_cli_project_delivery(
+        self,
+        delivery_id: str,
+        owner_user_id: str,
+        updates: Dict[str, Any],
+    ) -> Optional[Any]:
+        try:
+            with self._session() as session, session.begin():
+                delivery = session.query(DBCliProjectDelivery).filter(
+                    DBCliProjectDelivery.delivery_id == delivery_id,
+                    DBCliProjectDelivery.owner_user_id == owner_user_id,
+                ).first()
+                if delivery is None:
+                    return None
+                for key, value in updates.items():
+                    setattr(delivery, key, value)
+                session.flush()
+                session.refresh(delivery)
+                session.expunge(delivery)
+                return delivery
+        except IntegrityError:
+            return None
+
+    def record_project_publish_audit(self, record: Dict[str, Any]) -> None:
+        with self._session() as session, session.begin():
+            session.add(DBProjectPublishAudit(**record))
+
+    def list_project_publish_audits(self, project_id: str, owner_user_id: str) -> List[Any]:
+        with self._session() as session:
+            return (
+                session.query(DBProjectPublishAudit)
+                .filter(
+                    DBProjectPublishAudit.project_id == project_id,
+                    DBProjectPublishAudit.owner_user_id == owner_user_id,
+                )
+                .order_by(DBProjectPublishAudit.created_at.desc())
+                .all()
+            )
+
+    def get_cli_device_authorization(self, device_code_hash: Optional[str] = None, user_code_hash: Optional[str] = None) -> Optional[Any]:
+        with self._session() as session:
+            query = session.query(DBCliDeviceAuthorization)
+            if device_code_hash:
+                query = query.filter(DBCliDeviceAuthorization.device_code_hash == device_code_hash)
+            if user_code_hash:
+                query = query.filter(DBCliDeviceAuthorization.user_code_hash == user_code_hash)
+            return query.first()
+
+    def insert_cli_device_authorization(self, record: Dict[str, Any]) -> Any:
+        with self._session() as session, session.begin():
+            authorization = DBCliDeviceAuthorization(**record)
+            session.add(authorization)
+            session.flush()
+            session.refresh(authorization)
+            session.expunge(authorization)
+            return authorization
+
+    def update_cli_device_authorization(
+        self,
+        device_code_hash: str,
+        updates: Dict[str, Any],
+        expected_status: Optional[str] = None,
+        expected_consumed: Optional[bool] = None,
+    ) -> Optional[Any]:
+        with self._session() as session, session.begin():
+            query = session.query(DBCliDeviceAuthorization).filter(
+                DBCliDeviceAuthorization.device_code_hash == device_code_hash,
+            )
+            if expected_status is not None:
+                query = query.filter(DBCliDeviceAuthorization.status == expected_status)
+            if expected_consumed is not None:
+                query = query.filter(DBCliDeviceAuthorization.consumed == expected_consumed)
+            authorization = query.first()
+            if authorization is None:
+                return None
+            for key, value in updates.items():
+                setattr(authorization, key, value)
+            session.flush()
+            session.refresh(authorization)
+            session.expunge(authorization)
+            return authorization
+
+    def get_cli_token_session(self, token_hash: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBCliTokenSession).filter(
+                DBCliTokenSession.token_hash == token_hash,
+            ).first()
+
+    def insert_cli_token_session(self, record: Dict[str, Any]) -> Any:
+        with self._session() as session, session.begin():
+            token = DBCliTokenSession(**record)
+            session.add(token)
+            session.flush()
+            session.refresh(token)
+            session.expunge(token)
+            return token
+
+    def revoke_cli_token_sessions(
+        self,
+        *,
+        token_hash: Optional[str] = None,
+        refresh_token_hash: Optional[str] = None,
+        revoked_at: float,
+    ) -> int:
+        with self._session() as session, session.begin():
+            count = 0
+            queries = []
+            if token_hash:
+                queries.append(session.query(DBCliTokenSession).filter(
+                    DBCliTokenSession.token_hash == token_hash,
+                    DBCliTokenSession.revoked_at.is_(None),
+                ))
+            if refresh_token_hash:
+                queries.append(session.query(DBCliTokenSession).filter(
+                    DBCliTokenSession.refresh_token_hash == refresh_token_hash,
+                    DBCliTokenSession.revoked_at.is_(None),
+                ))
+            seen: set[str] = set()
+            for query in queries:
+                for token in query.all():
+                    if token.token_hash not in seen:
+                        token.revoked_at = revoked_at
+                        seen.add(token.token_hash)
+                        count += 1
+            return count
 
     def insert_project_revision(
         self,
@@ -506,17 +952,34 @@ class SqlAlchemyRepository:
 
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         with self._session() as session:
-            return (
+            canonical = (
+                session.query(DBProject)
+                .filter(
+                    DBProject.status.in_(("deletion_pending", "deletion_failed", "purging")),
+                    DBProject.purge_after.isnot(None),
+                    DBProject.purge_after <= before,
+                )
+                .order_by(DBProject.purge_after.asc())
+                .limit(limit)
+                .all()
+            )
+            canonical_ids = {str(project.project_id) for project in canonical}
+            remaining = max(0, limit - len(canonical))
+            legacy = (
                 session.query(DBGeneratedProject)
                 .filter(
+                    DBGeneratedProject.project_id.notin_(canonical_ids or ["__none__"]),
                     DBGeneratedProject.status.in_(("deletion_pending", "deletion_failed", "purging")),
                     DBGeneratedProject.purge_after.isnot(None),
                     DBGeneratedProject.purge_after <= before,
                 )
                 .order_by(DBGeneratedProject.purge_after.asc())
-                .limit(limit)
+                .limit(remaining)
                 .all()
+                if remaining
+                else []
             )
+            return [*canonical, *legacy]
 
     def update_project_deletion_state(
         self,
@@ -527,6 +990,35 @@ class SqlAlchemyRepository:
         expected_purge_started_at: Optional[str] = None,
     ) -> Optional[Any]:
         with self._session() as session, session.begin():
+            identity_query = session.query(DBProject).filter(
+                DBProject.project_id == project_id,
+                DBProject.status.in_(allowed_statuses),
+            )
+            if owner_user_id:
+                identity_query = identity_query.filter(DBProject.owner_user_id == owner_user_id)
+            if expected_purge_started_at is not None:
+                identity_query = identity_query.filter(DBProject.purge_started_at == expected_purge_started_at)
+            identity = identity_query.first()
+            if identity is not None:
+                for key, value in updates.items():
+                    setattr(identity, key, value)
+                projection = session.query(DBGeneratedProject).filter(
+                    DBGeneratedProject.project_id == project_id,
+                ).first()
+                if projection is not None:
+                    for key, value in updates.items():
+                        if hasattr(projection, key):
+                            setattr(projection, key, value)
+                session.flush()
+                session.refresh(identity)
+                session.expunge(identity)
+                return identity
+
+            # An existing canonical identity that failed the ownership/status/
+            # lease check cannot be bypassed through its legacy projection.
+            if session.query(DBProject.project_id).filter(DBProject.project_id == project_id).first() is not None:
+                return None
+
             query = session.query(DBGeneratedProject).filter(
                 DBGeneratedProject.project_id == project_id,
                 DBGeneratedProject.status.in_(allowed_statuses),
@@ -547,14 +1039,24 @@ class SqlAlchemyRepository:
 
     def hard_purge_project(self, project_id: str, owner_user_id: Optional[str]) -> bool:
         with self._session() as session, session.begin():
-            query = session.query(DBGeneratedProject).filter(DBGeneratedProject.project_id == project_id)
-            if owner_user_id:
-                query = query.filter(DBGeneratedProject.owner_user_id == owner_user_id)
-            project = query.first()
-            if not project:
+            identity = session.query(DBProject).filter(DBProject.project_id == project_id).first()
+            if identity is not None and owner_user_id and identity.owner_user_id != owner_user_id:
                 return False
-            chat_id = project.chat_id
-            project_owner_user_id = project.owner_user_id
+            project = session.query(DBGeneratedProject).filter(DBGeneratedProject.project_id == project_id).first()
+            cli_project = session.query(DBCliProject).filter(DBCliProject.project_id == project_id).first()
+            if identity is None and project is None and cli_project is None:
+                return False
+            if owner_user_id:
+                if project is not None and project.owner_user_id not in (None, owner_user_id):
+                    return False
+                if cli_project is not None and cli_project.owner_user_id != owner_user_id:
+                    return False
+            chat_id = getattr(project, "chat_id", None) or getattr(identity, "chat_id", None)
+            project_owner_user_id = (
+                getattr(identity, "owner_user_id", None)
+                or getattr(project, "owner_user_id", None)
+                or getattr(cli_project, "owner_user_id", None)
+            )
             session.query(DBProjectValidationReport).filter(
                 DBProjectValidationReport.project_id == project_id
             ).delete(synchronize_session=False)
@@ -585,7 +1087,18 @@ class SqlAlchemyRepository:
                     DBProjectRemix.source_project_id == project_id,
                 )
             ).delete(synchronize_session=False)
-            session.delete(project)
+            session.query(DBGeneratedProject).filter(DBGeneratedProject.project_id == project_id).delete(
+                synchronize_session=False
+            )
+            session.query(DBCliProjectRevision).filter(DBCliProjectRevision.project_id == project_id).delete(
+                synchronize_session=False
+            )
+            session.query(DBCliProject).filter(DBCliProject.project_id == project_id).delete(
+                synchronize_session=False
+            )
+            session.query(DBProject).filter(DBProject.project_id == project_id).delete(
+                synchronize_session=False
+            )
             session.flush()
             if chat_id and project_owner_user_id:
                 remaining = session.query(DBGeneratedProject).filter(
@@ -626,6 +1139,26 @@ class SqlAlchemyRepository:
                 return False
             project.hardware_ir = hardware_ir
             project.chat_id = chat_id
+            return True
+
+    def claim_unowned_generated_project(
+        self,
+        project_id: str,
+        hardware_ir: Dict[str, Any],
+        chat_id: Optional[str],
+        owner_user_id: str,
+    ) -> bool:
+        with self._session() as session, session.begin():
+            project = session.query(DBGeneratedProject).filter(
+                DBGeneratedProject.project_id == project_id,
+                DBGeneratedProject.status == "active",
+                DBGeneratedProject.owner_user_id.is_(None),
+            ).first()
+            if not project:
+                return False
+            project.hardware_ir = hardware_ir
+            project.chat_id = chat_id
+            project.owner_user_id = owner_user_id
             return True
 
     def update_generated_project_metadata(
@@ -855,12 +1388,18 @@ class SqlAlchemyRepository:
                 DBGeneratedProject.owner_user_id == owner_user_id,
                 DBGeneratedProject.chat_id.isnot(None),
             ).all()
-            by_chat: Dict[str, List[Any]] = {}
+            canonical_projects = session.query(DBProject).filter(
+                DBProject.owner_user_id == owner_user_id,
+                DBProject.chat_id.isnot(None),
+            ).all()
+            by_chat: Dict[str, Dict[str, Any]] = {}
             for project in projects:
-                by_chat.setdefault(str(project.chat_id), []).append(project)
+                by_chat.setdefault(str(project.chat_id), {})[str(project.project_id)] = project
+            for project in canonical_projects:
+                by_chat.setdefault(str(project.chat_id), {})[str(project.project_id)] = project
             visible = []
             for chat in chats:
-                linked = by_chat.get(chat.chat_id, [])
+                linked = list(by_chat.get(chat.chat_id, {}).values())
                 if linked and not any(project.status == "active" for project in linked):
                     continue
                 hidden_ids = {project.project_id for project in linked if project.status != "active"}
@@ -886,6 +1425,13 @@ class SqlAlchemyRepository:
                 DBGeneratedProject.chat_id == chat_id,
                 DBGeneratedProject.owner_user_id == owner_user_id,
             ).all()
+            canonical = session.query(DBProject).filter(
+                DBProject.chat_id == chat_id,
+                DBProject.owner_user_id == owner_user_id,
+            ).all()
+            linked_by_id = {str(project.project_id): project for project in linked}
+            linked_by_id.update({str(project.project_id): project for project in canonical})
+            linked = list(linked_by_id.values())
             if linked and not any(project.status == "active" for project in linked):
                 return None
             hidden_ids = {project.project_id for project in linked if project.status != "active"}
@@ -910,6 +1456,10 @@ class SqlAlchemyRepository:
             session.query(DBGeneratedProject).filter(
                 DBGeneratedProject.chat_id == chat_id,
                 DBGeneratedProject.owner_user_id == owner_user_id,
+            ).update({"chat_id": None})
+            session.query(DBProject).filter(
+                DBProject.chat_id == chat_id,
+                DBProject.owner_user_id == owner_user_id,
             ).update({"chat_id": None})
             return True
 

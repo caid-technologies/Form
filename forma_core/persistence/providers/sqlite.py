@@ -34,6 +34,11 @@ class SQLiteProvider(DatabaseProvider):
 
     def initialize(self) -> None:
         from forma_core.jobs.persistence import DBA2AJob  # noqa: F401
+        from forma_core.opencode.persistence import (  # noqa: F401
+            DBOpenCodeCommand,
+            DBOpenCodeEvent,
+            DBOpenCodeSession,
+        )
         from forma_core.persistence.migrations import migrate_sqlite_schema
         from forma_core.persistence.models import Base
 
@@ -64,6 +69,11 @@ class SQLiteProvider(DatabaseProvider):
         connection = self.engine.raw_connection()
         connection.driver_connection.row_factory = sqlite3.Row
         return connection
+
+    def dispose(self) -> None:
+        """Release pooled SQLite connections owned by this provider."""
+
+        self.engine.dispose()
 
     def describe(self) -> dict[str, Any]:
         config = super().describe()

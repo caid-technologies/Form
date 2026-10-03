@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a product image from a Forma HardwareIR and show it in the terminal."""
+"""Generate a product image from a Forma Hardware Intermediate Representation and show it in the terminal."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from forma_core.config import config
 from forma_core.image_providers import GeneratedImage, build_image_provider
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.terminal.images import TerminalImageRenderConfig, render_images
 
 
@@ -44,7 +44,7 @@ def utc_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def load_project_ir_from_json(path: Path) -> HardwareIR:
+def load_project_ir_from_json(path: Path) -> HardwareIntermediateRepresentation:
     if not path.exists():
         raise ImageGenerationScriptError(f"Input JSON not found: {path}")
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -52,12 +52,12 @@ def load_project_ir_from_json(path: Path) -> HardwareIR:
         raise ImageGenerationScriptError("Input JSON must contain an object.")
     project_ir = payload.get("project_ir") if isinstance(payload.get("project_ir"), dict) else payload
     try:
-        return HardwareIR.model_validate(project_ir)
+        return HardwareIntermediateRepresentation.model_validate(project_ir)
     except Exception as exc:
-        raise ImageGenerationScriptError(f"Input JSON did not contain a valid HardwareIR: {exc}") from exc
+        raise ImageGenerationScriptError(f"Input JSON did not contain a valid HardwareIntermediateRepresentation: {exc}") from exc
 
 
-def load_example_ir(example: str) -> HardwareIR:
+def load_example_ir(example: str) -> HardwareIntermediateRepresentation:
     filename = example if example.endswith(".json") else f"{example}.json"
     return load_project_ir_from_json(ROOT_DIR / "apps" / "web" / "public" / "examples" / filename)
 
@@ -111,7 +111,7 @@ def configure_image_env(args: argparse.Namespace) -> None:
         config.set("IMAGE_TIMEOUT_SECONDS", str(args.timeout_seconds))
 
 
-def generate_images(prompt: str, ir: HardwareIR, *, sequence: bool) -> list[tuple[GeneratedImage, float]]:
+def generate_images(prompt: str, ir: HardwareIntermediateRepresentation, *, sequence: bool) -> list[tuple[GeneratedImage, float]]:
     provider = build_image_provider(force_enabled=True)
     config = provider.get_debug_config()
     print(
@@ -168,7 +168,7 @@ def save_generated_image(image: GeneratedImage, *, output_dir: Path, run_id: str
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group()
-    source.add_argument("--input-json", type=Path, default=None, help="Generated response JSON or raw HardwareIR JSON.")
+    source.add_argument("--input-json", type=Path, default=None, help="Generated response JSON or raw HardwareIntermediateRepresentation JSON.")
     source.add_argument("--example", default="plant_watering", help="Frontend example name. Defaults to plant_watering.")
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--provider", default="openai")

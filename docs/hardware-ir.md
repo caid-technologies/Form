@@ -1,8 +1,8 @@
-# Hardware IR
+# Hardware Intermediate Representation
 
-Forma’s **Hardware IR** is a typed, versioned JSON schema built with Pydantic. It is the single source of truth for generated projects and is intentionally structured for validation, UI rendering, and future export formats.
+Forma’s **Hardware Intermediate Representation** is a typed, versioned JSON schema built with Pydantic. It is the single source of truth for generated projects and is intentionally structured for validation, UI rendering, and future export formats.
 
-## Why a typed IR?
+## Why a typed Intermediate Representation?
 - **Consistency:** Every agent writes into the same schema.
 - **Validation-ready:** Rules can reason about pins, nets, and voltages.
 - **UI-friendly:** The React Flow canvas can render nodes/edges directly.
@@ -35,6 +35,8 @@ Additional fields commonly populated at runtime:
 - **mechanical.render_dimensions** – overall envelope dimensions used by the 3D viewer.
 - **mechanical.component_placements** – per-component placement records for the 3D viewer.
 - **mechanical.spatial_relationships** – helpful offsets/alignment relationships.
+- **mechanical.motion_intents** – agent-authored motion intent keyed by component references. Rigid revolute/prismatic intent is resolved into OpenCAD kinematic joints during CAD generation; `cad_model.kinematics` stores OpenCAD-evaluated pose tracks for MECH playback. Compliant intent remains separate from the rigid-joint contract.
+- **mechanical.mechanism_benchmark** – optional bounded additive-mechanism benchmark configuration for the print-in-place captive hinge or monolithic flexure hinge. Generated CAD records manufacturing metadata in `cad_model.mechanism`; flexure visualization uses a separate non-structural `cad_model.compliant_preview` contract.
 
 ## Key relationships
 - **SystemArchitecture → SystemNode:** The complete product nests electrical, mechanical, firmware, and more specific systems. Each node records why it exists, its responsibilities, interfaces, abstract component roles, and detail owner.
@@ -53,13 +55,22 @@ The IR is produced in a loop:
 
 This makes the IR more than a snapshot—it’s a record of what was checked and why the design is considered safe within MVP scope.
 
-## Hardware IR 0.2 migration
+## Deterministic wiring compilation
 
-Hardware IR 0.2 separates physical design state from procurement aggregation. Repeated parts are represented as independently addressable instances (`M1`, `M2`, `M3`, `M4`), while the BOM can still contain one row with quantity four. Nets and mechanical placements always target a physical instance, and validation rejects duplicate or unknown references, unknown pins when a pinout is defined, mismatched BOM quantities, and non-deterministic extended prices.
+Wiring agents do not author canonical `ConnectionNet` objects or duplicate `pin_mappings`. They receive a compact
+endpoint catalog keyed by stable IDs such as `U1.GPIO21` and return `WiringIntent` objects containing endpoint IDs.
+Application code resolves those IDs, rejects unknown or conflicting endpoints, assigns canonical net IDs, and derives
+MCU `pin_mappings` from the compiled nets. A repair response may replace a named rejected net with `replace_net_id`;
+unrelated valid nets remain unchanged. Power rails with explicit source/input semantics are checked separately from
+signal connectivity, so equal nominal voltage alone does not establish a valid power source.
+
+## Hardware Intermediate Representation 0.2 migration
+
+Hardware Intermediate Representation 0.2 separates physical design state from procurement aggregation. Repeated parts are represented as independently addressable instances (`M1`, `M2`, `M3`, `M4`), while the BOM can still contain one row with quantity four. Nets and mechanical placements always target a physical instance, and validation rejects duplicate or unknown references, unknown pins when a pinout is defined, mismatched BOM quantities, and non-deterministic extended prices.
 
 The validator reads 0.1 quantity-bearing component records and expands them deterministically. Shared legacy identity and pin fields are moved into `part_definitions`, BOM rows are derived, and the serialized result is emitted as 0.2. Runtime compatibility properties remain available to existing Python consumers during the transition, but new JSON must not use aggregate component quantities.
 
 ## Image inputs
-When `image_data` is provided to `POST /api/generate`, the backend uploads the reference image to Supabase Storage when the Supabase service-role/secret key is configured and `FORMA_DEV_MODE` is not enabled, then records `assembly_metadata.reference_image_url`, `reference_image_s3_bucket`, and `reference_image_s3_key`. If storage is not configured or `FORMA_DEV_MODE=true`, it falls back to `assembly_metadata.reference_image_data`.
+When `image_data` is provided to `POST /api/generate`, the backend uploads the reference image to Supabase Storage when the Supabase service-role/secret key is configured and `FORMA_DEVELOPMENT_MODE` is not enabled, then records `assembly_metadata.reference_image_url`, `reference_image_s3_bucket`, and `reference_image_s3_key`. If storage is not configured or `FORMA_DEVELOPMENT_MODE=true`, it falls back to `assembly_metadata.reference_image_data`.
 
-When image output is requested, the backend records `assembly_metadata.image_output_status` as `succeeded` or `failed`. It also records structured operation entries in `assembly_metadata.operation_statuses`, including `image_generation` and, when applicable, `image_storage`. On success, it uploads the generated product concept image to Supabase Storage when the Supabase service-role/secret key is configured and `FORMA_DEV_MODE` is not enabled, then records `assembly_metadata.product_image_url`, `product_image_s3_bucket`, and `product_image_s3_key` along with `product_image_provider`, `product_image_model`, and `product_image_size`. In dev mode, the product image stays inline in the SQLite project record. If the image model is unavailable, misconfigured, returns no image, or errors, the job still keeps the hardware IR and records `assembly_metadata.image_output_error`, `image_output_error_type`, and `product_image_error`.
+When image output is requested, the backend records `assembly_metadata.image_output_status` as `succeeded` or `failed`. It also records structured operation entries in `assembly_metadata.operation_statuses`, including `image_generation` and, when applicable, `image_storage`. On success, it uploads the generated product concept image to Supabase Storage when the Supabase service-role/secret key is configured and `FORMA_DEVELOPMENT_MODE` is not enabled, then records `assembly_metadata.product_image_url`, `product_image_s3_bucket`, and `product_image_s3_key` along with `product_image_provider`, `product_image_model`, and `product_image_size`. In development mode, the product image stays inline in the SQLite project record. If the image model is unavailable, misconfigured, returns no image, or errors, the job still keeps the hardware intermediate representation and records `assembly_metadata.image_output_error`, `image_output_error_type`, and `product_image_error`.

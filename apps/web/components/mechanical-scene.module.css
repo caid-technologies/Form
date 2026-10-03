@@ -1,0 +1,54 @@
+.layout {
+  container-type: inline-size;
+  min-height: 420px;
+  min-width: 0;
+}
+
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(15rem, 18rem);
+  height: 100%;
+  min-height: 420px;
+  min-width: 0;
+}
+
+.viewport {
+  min-width: 0;
+  min-height: 300px;
+  position: relative;
+}
+
+.sidebar {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-left: 1px solid var(--forma-border);
+  background: var(--forma-page);
+}
+
+.layout[data-fullscreen="true"],
+.layout[data-fullscreen="true"] .panes,
+.layout[data-fullscreen="true"] .viewport {
+  min-height: 0;
+}
+
+/* Use the viewer's width: a split workspace may be narrow on a wide screen. */
+@container (max-width: 700px) {
+  .panes {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(240px, 1fr) minmax(0, 180px);
+  }
+
+  .viewport {
+    min-height: 0;
+  }
+
+  .sidebar {
+    border-left: 0;
+    border-top: 1px solid var(--forma-border);
+  }
+
+  .layout[data-fullscreen="true"] .panes {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 40%);
+  }
+}

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
-import tempfile
 
 from forma_core.jobs.metrics import summarize_job_metrics
 from forma_core.jobs.store import JobMetadataStore
@@ -10,8 +9,8 @@ from forma_core.jobs.store import JobMetadataStore
 
 class JobMetricsTests(unittest.TestCase):
     def test_sqlite_job_store_reports_persisted_metrics(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".db") as file:
-            store = JobMetadataStore(file.name, backend="sqlite")
+        store = JobMetadataStore(":memory:", backend="sqlite")
+        try:
             for job_id in ("job_success", "job_partial", "job_failure"):
                 store.create_job(
                     job_id=job_id,
@@ -28,6 +27,8 @@ class JobMetricsTests(unittest.TestCase):
             store.mark_failed("job_failure", "provider failed")
 
             metrics = store.get_metrics(days=7, hours=24)
+        finally:
+            store.close()
 
         self.assertEqual(3, metrics["jobs_today"])
         self.assertEqual(3, metrics["jobs_last_hour"])
@@ -37,8 +38,8 @@ class JobMetricsTests(unittest.TestCase):
         self.assertEqual(33.3, metrics["failure_rate"])
 
     def test_sqlite_job_store_merges_durable_worker_plan_rows(self) -> None:
-        with tempfile.NamedTemporaryFile(suffix=".db") as file:
-            store = JobMetadataStore(file.name, backend="sqlite")
+        store = JobMetadataStore(":memory:", backend="sqlite")
+        try:
             store.create_job(
                 job_id="a2a_success",
                 message_id="message_success",
@@ -60,6 +61,8 @@ class JobMetricsTests(unittest.TestCase):
                     {"job_id": "a2a_success", "created_at": now, "status": "failed"},
                 ],
             )
+        finally:
+            store.close()
 
         self.assertEqual(2, metrics["jobs_today"])
         self.assertEqual(2, metrics["completed_jobs"])

@@ -1,0 +1,255 @@
+{
+  "hardware_ir_version": "0.2",
+  "overview": {
+    "title": "Print-in-Place Captive Hinge",
+    "description": "Calibration benchmark for a two-body captive hinge printed already assembled with explicit radial and axial clearance.",
+    "difficulty": "Intermediate",
+    "estimated_cost": 0,
+    "category": "Mechanical"
+  },
+  "requirements": {
+    "requirements": [
+      "Print both hinge bodies in one job",
+      "Keep pin captive after printing",
+      "Preview revolute motion"
+    ],
+    "power_needs": "None",
+    "operating_voltage": 0,
+    "physical_constraints": [
+      "56 mm hinge length",
+      "Clearance must remain parameterized"
+    ],
+    "safety_notes": [
+      "Do not force a fused hinge; recalibrate clearance instead."
+    ],
+    "missing_info": []
+  },
+  "components": [
+    {
+      "ref_des": "PIP_FIXED",
+      "part_number": "PIP-FIXED",
+      "name": "Fixed hinge leaf",
+      "category": "Mechanical",
+      "rationale": "Stationary print-in-place hinge body."
+    },
+    {
+      "ref_des": "PIP_MOVING",
+      "part_number": "PIP-MOVING",
+      "name": "Moving captive-pin leaf",
+      "category": "Mechanical",
+      "rationale": "Moving body carries the captive pin and center knuckle."
+    }
+  ],
+  "nets": [],
+  "buses": [],
+  "pin_mappings": [],
+  "assembly": [],
+  "mechanical": {
+    "physical_form": "Print-in-place captive hinge calibration coupon",
+    "enclosure_type": "3D Printed",
+    "mounting_guidance": "Print both bodies together; no separate pin assembly.",
+    "fabrication_details": [
+      "Default radial clearance: 0.35 mm; default axial clearance: 0.40 mm.",
+      "Clearance is a calibration parameter, not a universal printer value.",
+      "Allow the print to cool, remove stringing or support debris, then free the hinge gradually."
+    ],
+    "fabrication_cost_estimate_usd": 0,
+    "cad_sources": [],
+    "manufacturability_rating": "Moderate",
+    "render_dimensions": {
+      "x_mm": 70,
+      "y_mm": 58,
+      "z_mm": 18
+    },
+    "component_placements": [
+      {
+        "ref_des": "PIP_FIXED",
+        "label": "Fixed hinge leaf",
+        "category": "Mechanical",
+        "layer": "mechanism",
+        "position": {
+          "x_mm": 0,
+          "y_mm": -12,
+          "z_mm": 0
+        },
+        "size": {
+          "x_mm": 56,
+          "y_mm": 24,
+          "z_mm": 10
+        },
+        "orientation_deg": {
+          "x_deg": 0,
+          "y_deg": 0,
+          "z_deg": 0
+        }
+      },
+      {
+        "ref_des": "PIP_MOVING",
+        "label": "Moving captive-pin leaf",
+        "category": "Mechanical",
+        "layer": "mechanism",
+        "position": {
+          "x_mm": 0,
+          "y_mm": 12,
+          "z_mm": 0
+        },
+        "size": {
+          "x_mm": 56,
+          "y_mm": 24,
+          "z_mm": 10
+        },
+        "orientation_deg": {
+          "x_deg": 0,
+          "y_deg": 0,
+          "z_deg": 0
+        }
+      }
+    ],
+    "spatial_relationships": [],
+    "motion_intents": [],
+    "mechanism_benchmark": {
+      "kind": "print_in_place_hinge",
+      "fixed_ref": "PIP_FIXED",
+      "moving_ref": "PIP_MOVING",
+      "hinge_length_mm": 56,
+      "barrel_diameter_mm": 10,
+      "pin_diameter_mm": 4,
+      "radial_clearance_mm": 0.35,
+      "axial_clearance_mm": 0.4,
+      "wall_thickness_mm": 1.8,
+      "leaf_width_mm": 24,
+      "leaf_thickness_mm": 3,
+      "travel_deg": 110,
+      "stop_thickness_mm": 2,
+      "process": "FDM",
+      "material_note": "Calibrate clearance for the actual printer, material, layer height, and orientation."
+    }
+  },
+  "constraints": [
+    "Print-in-place",
+    "No separate hinge hardware"
+  ],
+  "power_rails": [],
+  "estimated_current_draw_ma": 0,
+  "fabrication_notes": [
+    "This example is a clearance benchmark, not a guarantee of printer-specific success."
+  ],
+  "assembly_metadata": {
+    "status": "example",
+    "image_features": [
+      "Print-in-place mechanism",
+      "Captive hinge",
+      "Two-body articulated print"
+    ]
+  },
+  "project_version_history": [],
+  "validation": {
+    "critical": [],
+    "warning": [],
+    "info": []
+  },
+  "is_valid": true,
+  "cad_model": {
+    "adapter": "forma-opencad",
+    "source": "Static example fixture for Motion Preview",
+    "mechanism": {
+      "family": "print-in-place mechanism",
+      "benchmark": "print_in_place_hinge",
+      "body_count": 2,
+      "clearance": {
+        "radial_mm": 0.35,
+        "axial_mm": 0.4
+      },
+      "travel_deg": 110,
+      "process": "FDM"
+    },
+    "kinematics": {
+      "source": "opencad",
+      "coordinate_system": "z-up",
+      "sample_count": 3,
+      "tracks": [
+        {
+          "joint": {
+            "id": "print-in-place-hinge",
+            "label": "Print-in-place hinge travel",
+            "type": "revolute",
+            "parent_shape_id": "pip-fixed-shape",
+            "child_shape_id": "pip-moving-shape",
+            "axis": [
+              1,
+              0,
+              0
+            ],
+            "origin_mm": [
+              0,
+              0,
+              0
+            ],
+            "lower_limit": 0,
+            "upper_limit": 1.9198621771937625,
+            "unit": "radian"
+          },
+          "target_ref": "PIP_MOVING",
+          "parent_ref": "PIP_FIXED",
+          "notes": "Rigid preview from OpenCAD; physical stop contact is not collision-validated.",
+          "samples": [
+            {
+              "progress": 0,
+              "value": 0,
+              "unit": "radian",
+              "transform": {
+                "translation_mm": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0,
+                  0,
+                  0,
+                  1
+                ]
+              }
+            },
+            {
+              "progress": 0.5,
+              "value": 0.9599310885968813,
+              "unit": "radian",
+              "transform": {
+                "translation_mm": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0.4617486132350339,
+                  0,
+                  0,
+                  0.8870108331782217
+                ]
+              }
+            },
+            {
+              "progress": 1,
+              "value": 1.9198621771937625,
+              "unit": "radian",
+              "transform": {
+                "translation_mm": [
+                  0,
+                  0,
+                  0
+                ],
+                "rotation_quaternion_xyzw": [
+                  0.8191520442889918,
+                  0,
+                  0,
+                  0.5735764363510462
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
