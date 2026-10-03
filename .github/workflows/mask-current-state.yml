@@ -1,0 +1,96 @@
+name: Mask benchmark current state 0.3.6
+
+on:
+  push:
+    branches:
+      - benchmark/mask-current-state-036
+
+permissions:
+  contents: read
+
+jobs:
+  render-current-state:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout benchmark harness
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install published Forma release
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "caid-forma-core[terminal]==0.3.6"
+          python - <<'PY'
+          import forma_core
+          from forma_core import __version__
+          print("Forma version:", __version__)
+          assert __version__ == "0.3.6"
+          PY
+
+      - name: Install native OpenCAD runtime
+        run: |
+          python .agents/skills/forma-hardware/scripts/cad.py setup
+          python .agents/skills/forma-hardware/scripts/cad.py check
+
+      - name: Build native STEP and STL
+        run: |
+          mkdir -p benchmarks/mask-current-state/outputs
+          python .agents/skills/forma-hardware/scripts/cad.py build             benchmarks/mask-current-state/assembly.py             benchmarks/mask-current-state/outputs/assembly.step             --tree-output benchmarks/mask-current-state/outputs/assembly.tree.json
+          python .agents/skills/forma-hardware/scripts/cad.py build             benchmarks/mask-current-state/assembly.py             benchmarks/mask-current-state/outputs/assembly.stl
+          ls -lh benchmarks/mask-current-state/outputs
+
+      - name: Render directly from STEP
+        run: |
+          python -m pip install matplotlib numpy pillow
+          python benchmarks/mask-current-state/render_step.py             benchmarks/mask-current-state/outputs/assembly.step             benchmarks/mask-current-state/outputs/current-state.gif             benchmarks/mask-current-state/outputs/current-state.png
+          ls -lh benchmarks/mask-current-state/outputs
+
+      - name: Record benchmark metadata
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+          from forma_core import __version__
+
+          root = Path("benchmarks/mask-current-state/outputs")
+          metadata = {
+              "benchmark_prompt": "Design a wearable mask that can mechanically transition between covering the wearer's face and revealing it.",
+              "state": "Current State",
+              "forma_version": __version__,
+              "source_release": "v0.3.6",
+              "harness_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "step": "assembly.step",
+              "stl": "assembly.stl",
+              "gif": "current-state.gif",
+              "png": "current-state.png",
+              "notes": [
+                  "Host-agent authored CAD using the Forma hardware skill contract.",
+                  "Native geometry exported by Forma's OpenCAD adapter with OCCT.",
+                  "GIF renderer imports assembly.step directly through CadQuery/OCCT.",
+                  "v0.3.6 has rigid kinematic joints but no first-class human model, action contract, or firmware contract.",
+              ],
+          }
+          (root / "benchmark.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+          PY
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mask-current-state-forma-0.3.6
+          path: |
+            benchmarks/mask-current-state/assembly.py
+            benchmarks/mask-current-state/outputs/assembly.step
+            benchmarks/mask-current-state/outputs/assembly.stl
+            benchmarks/mask-current-state/outputs/assembly.tree.json
+            benchmarks/mask-current-state/outputs/current-state.gif
+            benchmarks/mask-current-state/outputs/current-state.png
+            benchmarks/mask-current-state/outputs/current-state.render.json
+            benchmarks/mask-current-state/outputs/benchmark.json
+          if-no-files-found: error
