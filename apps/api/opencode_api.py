@@ -33,6 +33,8 @@ from forma_core.opencode.models import (
     OpenCodeSessionStatus,
     PublicEvent,
     ProjectHistoryResponse,
+    OperatorFailureDiagnostic,
+    SessionDiagnosticsResponse,
     SessionResponse,
     SubmitCommandRequest,
     McpJsonRpcRequest,
@@ -62,6 +64,50 @@ def get_opencode_project_history(
     response.headers["Cache-Control"] = "private, no-store"
     return ProjectHistoryResponse(
         project_id=project_id, messages=OPENCODE_STORE.project_history(str(project_id), owner),
+    )
+
+
+@router.get("/sessions/{session_id}/diagnostics", response_model=SessionDiagnosticsResponse)
+def get_opencode_session_diagnostics(
+    session_id: str,
+    response: Response,
+    user: UserContext = Depends(require_opencode_authoring_access),
+) -> SessionDiagnosticsResponse:
+    owner = _owner(user)
+    session = _owned_session(session_id, owner)
+    response.headers["Cache-Control"] = "private, no-store"
+
+    session = OPENCODE_STORE.reconcile_session(session.session_id) or session
+    latest = OPENCODE_STORE.latest_failure(session.session_id)
+    failure = None
+    if latest is not None:
+        command_id = latest.command_id or latest.event_id.partition(":")[0]
+        diagnostic = latest.diagnostic
+        code = diagnostic.code if diagnostic else latest.error.code if latest.error else "cancelled"
+        category = diagnostic.category if diagnostic else (
+            "connector_cloud_connectivity" if code in {"connector_timeout", "connector_unavailable", "opencode_lease_expired"}
+            else "cancellation" if latest.kind == OpenCodeEventKind.CANCELLED else "unknown"
+        )
+        failure = OperatorFailureDiagnostic(
+            timestamp=latest.created_at,
+            connector_id=session.connector_id,
+            session_id=session.session_id,
+            command_id=command_id,
+            correlation_id=command_id,
+            category=category,
+            code=code,
+            phase=diagnostic.phase if diagnostic else "finalizing",
+            retryable=diagnostic.retryable if diagnostic else category == "connector_cloud_connectivity",
+            provider=diagnostic.provider if diagnostic else None,
+            model=diagnostic.model if diagnostic else None,
+        )
+    return SessionDiagnosticsResponse(
+        connector_id=session.connector_id,
+        session_id=session.session_id,
+        project_id=UUID(session.project_id),
+        status=session.status,
+        last_successful_poll_at=_datetime(session.last_heartbeat_at) if session.last_heartbeat_at else None,
+        latest_failure=failure,
     )
 
 
@@ -308,7 +354,8 @@ def ingest_opencode_event(
         raise _http_error(403, exc.code if isinstance(exc, LeaseError) else "opencode_lease_invalid",
                           "The command lease is no longer valid.") from exc
     session = _scoped_connector_session(verify_capability(resolved_capability or "", session_id=command.session_id, project_id=command.project_id, owner_user_id=command.owner_user_id, scope="events"))
-    return _store_event(session, event)
+    event = event.model_copy(update={"correlation_id": command.command_id})
+    return _store_event(session, event, command_id=command.command_id)
 
 
 @router.post("/connector/commands/{command_id}/complete", response_model=CommandResponse)
@@ -336,7 +383,10 @@ def complete_opencode_command(
             kind=terminal_kind,
             status=request.status,
             error_code=request.error_code if request.status == OpenCodeCommandStatus.FAILED else None,
+            correlation_id=command.command_id,
+            diagnostic=request.diagnostic,
         ),
+        command_id=command.command_id,
     )
     return _command_response(updated)
 
@@ -394,13 +444,14 @@ def _datetime(value: str) -> datetime:
     return datetime.fromisoformat(normalized).astimezone(timezone.utc)
 
 
-def _store_event(session: StoredSession, event: ConnectorEventInput) -> PublicEvent:
+def _store_event(session: StoredSession, event: ConnectorEventInput, *, command_id: str | None = None) -> PublicEvent:
     public_event = project_public_event(
         event,
         sequence=OPENCODE_STORE.next_event_sequence(session.session_id),
         session_id=session.session_id,
         project_id=UUID(session.project_id),
     )
+    public_event.command_id = command_id
     if public_event.kind == OpenCodeEventKind.COMPLETED:
         # The gateway, not the worker's HTTP result, owns saved-output evidence.
         revision = get_latest_project_revision(session.project_id, session.owner_user_id)

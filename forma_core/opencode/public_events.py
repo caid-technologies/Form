@@ -60,6 +60,7 @@ def project_public_event(
         validation=event.validation if kind in {OpenCodeEventKind.COMPLETED.value, OpenCodeEventKind.VALIDATING.value} else None,
         artifact_ids=event.artifact_ids if kind == OpenCodeEventKind.COMPLETED.value else (),
         error=error,
+        diagnostic=event.diagnostic if kind in {OpenCodeEventKind.FAILED.value, OpenCodeEventKind.CANCELLED.value} else None,
         created_at=created_at or datetime.now(timezone.utc),
     )
 

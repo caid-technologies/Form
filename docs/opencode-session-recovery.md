@@ -1,5 +1,36 @@
 # Recovering an offline Forma Agent request
 
+## Remote inference diagnostics
+
+The signed-in session owner can read
+`GET /opencode/sessions/{session_id}/diagnostics`. Other owners receive 404;
+connector capabilities do not authorize this owner endpoint. Responses are
+`Cache-Control: private, no-store` and include the session status, connector/project
+IDs, `last_successful_poll_at`, and `latest_failure` (null before any failure).
+The contact timestamp is observed by the gateway and includes successful command
+polls and session/command heartbeats; it is not a mini-PC clock or proof that
+inference succeeded.
+
+`latest_failure` includes the cloud receipt timestamp, gateway-bound command and
+correlation IDs, fixed code/category, phase, retryability, and bounded provider/model
+identifiers when available. It remains visible after later progress or successful
+commands. Cancellation is included. Legacy failures without structured diagnostics
+still show their public error code, including `connector_timeout` and
+`opencode_lease_expired`, so an offline connector can be distinguished from a
+provider authentication, model, rate-limit, or timeout failure. Reading diagnostics
+also reconciles stale sessions using the timeout policy below.
+
+The connector sends the same optional diagnostic with its terminal event and
+completion request. Completion persists it if event delivery failed; the canonical
+terminal event is immutable on retries. Deploy this receiver before the paired
+connector diagnostics update. Older connectors may omit the new fields. There is
+no new table, retention policy, or raw-log store: diagnostics live in the existing
+session event JSON and follow its lifecycle. Provider responses, exception text,
+prompts, credentials, file contents, and host logs are excluded. Detailed host logs
+remain on the mini-PC as documented in `local-server-config/docs/opencode-connector.md`.
+
+## Session recovery
+
 An outstanding request receives a connector-unavailable warning after two minutes
 without contact. Stop remains available. If contact resumes before five minutes,
 the same request can continue. Healthy long-running requests are not subject to a

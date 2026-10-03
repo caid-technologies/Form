@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Annotated, Literal
@@ -66,6 +67,89 @@ class ProjectValidation(BaseModel):
     issues: tuple[ValidationIssue, ...] = ()
 
 
+_DIAGNOSTIC_CODES = frozenset({
+    'EACCES',
+    'EBUSY',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'EINVAL',
+    'EIO',
+    'EMFILE',
+    'ENFILE',
+    'ENOENT',
+    'ENOSPC',
+    'EPERM',
+    'EROFS',
+    'ETIMEDOUT',
+    'OPENCODE_COMMAND_TIMEOUT',
+    'OPENCODE_EVENT_INVALID',
+    'OPENCODE_EVENT_STREAM_CLOSED',
+    'OPENCODE_HTTP_ERROR',
+    'OPENCODE_MESSAGE_INVALID',
+    'OPENCODE_MODEL_UNAVAILABLE',
+    'OPENCODE_PROMPT_FAILED',
+    'OPENCODE_PROVIDER_AUTH',
+    'OPENCODE_PROVIDER_TIMEOUT',
+    'OPENCODE_RATE_LIMIT',
+    'OPENCODE_REQUEST_TIMEOUT',
+    'UND_ERR_BODY_TIMEOUT',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_SOCKET',
+    'aggregate_error',
+    'cancelled',
+    'cancelled_lease_expired',
+    'command_driver_not_configured',
+    'command_failed',
+    'opencode_capability_expired',
+    'opencode_capability_invalid',
+    'opencode_capability_required',
+    'opencode_command_closed',
+    'opencode_connector_auth_required',
+    'opencode_lease_expired',
+    'opencode_lease_invalid',
+    'opencode_lease_required',
+    'opencode_request_rejected',
+    'opencode_scope_mismatch',
+    'opencode_session_closed',
+    'opencode_session_response_invalid',
+    'opencode_transport_unavailable',
+    'syntax_error',
+    'unknown',
+})
+
+
+class SanitizedFailureDiagnostic(BaseModel):
+    """Bounded mini-PC failure metadata. Raw provider/OpenCode content is forbidden."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    category: Literal[
+        "provider_authentication",
+        "model_unavailable",
+        "rate_limit",
+        "provider_timeout",
+        "opencode_request_stream_failure",
+        "connector_cloud_connectivity",
+        "cancellation",
+        "unknown",
+    ]
+    code: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
+    phase: Literal["preparing", "authoring", "compiling", "validating", "finalizing"]
+    retryable: bool
+    provider: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
+    model: str | None = Field(default=None, max_length=160, pattern=r"^[A-Za-z0-9_./:-]+$")
+
+    @field_validator("code")
+    @classmethod
+    def fixed_diagnostic_code(cls, value: str) -> str:
+        # Identifier grammar alone would allow a token or exception text encoded
+        # without spaces. Only known codes may cross the public boundary.
+        if value in _DIAGNOSTIC_CODES or re.fullmatch(r"opencode_session_http_[45]\d{2}", value):
+            return value
+        return "unknown"
+
+
 class PublicError(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -91,6 +175,8 @@ class PublicEvent(BaseModel):
     artifact_ids: tuple[str, ...] = ()
     design_outcome: DesignOutcome | None = None
     error: PublicError | None = None
+    diagnostic: SanitizedFailureDiagnostic | None = None
+    command_id: str | None = None
     created_at: datetime
 
 
@@ -147,6 +233,33 @@ class ProjectHistoryResponse(BaseModel):
 
     project_id: UUID
     messages: tuple[ProjectHistoryMessage, ...]
+
+
+class OperatorFailureDiagnostic(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    timestamp: datetime
+    connector_id: str
+    session_id: str
+    command_id: str
+    correlation_id: str
+    category: str
+    code: str
+    phase: str
+    retryable: bool
+    provider: str | None = None
+    model: str | None = None
+
+
+class SessionDiagnosticsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    connector_id: str
+    session_id: str
+    project_id: UUID
+    status: OpenCodeSessionStatus
+    last_successful_poll_at: datetime | None = None
+    latest_failure: OperatorFailureDiagnostic | None = None
 
 
 class CommandResponse(BaseModel):
@@ -227,6 +340,7 @@ class ConnectorEventInput(BaseModel):
     error_code: str | None = Field(default=None, max_length=80)
     error_message: str | None = Field(default=None, max_length=300)
     correlation_id: str | None = Field(default=None, max_length=100)
+    diagnostic: SanitizedFailureDiagnostic | None = None
 
 
 class ConnectorHeartbeat(BaseModel):
@@ -249,6 +363,7 @@ class ConnectorCompletion(BaseModel):
     lease_token: str = Field(min_length=1)
     status: Literal[OpenCodeCommandStatus.SUCCEEDED, OpenCodeCommandStatus.FAILED, OpenCodeCommandStatus.CANCELLED]
     error_code: str | None = Field(default=None, max_length=80)
+    diagnostic: SanitizedFailureDiagnostic | None = None
 
 
 class McpToolArguments(BaseModel):

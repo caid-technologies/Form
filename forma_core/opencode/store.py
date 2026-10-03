@@ -705,6 +705,22 @@ class OpenCodeStore:
             row = connection.execute("SELECT event_json FROM opencode_events WHERE session_id = ? AND event_id = ?", (session_id, event_id)).fetchone()
         return PublicEvent.model_validate(json.loads(row["event_json"])) if row else None
 
+    def latest_failure(self, session_id: str) -> PublicEvent | None:
+        """Find the last failed/cancelled event regardless of subsequent activity."""
+        provider = self._ensure_provider()
+        if isinstance(provider, SupabaseProvider):
+            rows = (provider.client.table("opencode_events").select("event_json")
+                    .eq("session_id", session_id).in_("event_json->>kind", ["failed", "cancelled"])
+                    .order("sequence", desc=True).limit(1).execute().data or [])
+            return PublicEvent.model_validate(rows[0]["event_json"]) if rows else None
+        with closing(provider.connect_dbapi()) as connection:
+            row = connection.execute(
+                "SELECT event_json FROM opencode_events WHERE session_id = ? "
+                "AND json_extract(event_json, '$.kind') IN ('failed', 'cancelled') "
+                "ORDER BY sequence DESC LIMIT 1", (session_id,),
+            ).fetchone()
+        return PublicEvent.model_validate(json.loads(row["event_json"])) if row else None
+
     def list_events(self, session_id: str, after: int, limit: int) -> list[PublicEvent]:
         provider = self._ensure_provider()
         if isinstance(provider, SupabaseProvider):

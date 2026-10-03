@@ -8,11 +8,11 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock, patch
 from uuid import UUID, uuid4
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 
 from apps.api.auth import UserContext
 from apps.api.main import _runtime_config_settings
-from apps.api.opencode_api import _record_connector_unavailable_if_stale, _require_owned_project, list_opencode_events
+from apps.api.opencode_api import _record_connector_unavailable_if_stale, _require_owned_project, get_opencode_session_diagnostics, list_opencode_events
 from apps.api.opencode_mcp import handle_opencode_mcp_json_rpc, opencode_mcp_tools
 from forma_core.opencode.capabilities import CapabilityError, issue_capability, verify_capability
 from forma_core.opencode.models import ConnectorEventInput, McpJsonRpcRequest, OpenCodeCommandStatus, OpenCodeEventKind, OpenCodeOperation, OpenCodeSessionStatus
@@ -82,6 +82,103 @@ class OpenCodeBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tool_call", serialized)
         self.assertIsNone(public.error)
         self.assertEqual(OpenCodeEventKind.ASSISTANT_MESSAGE, public.kind)
+
+    def test_failed_event_preserves_only_bounded_sanitized_diagnostic_fields(self) -> None:
+        project_id = uuid4()
+        event = ConnectorEventInput.model_validate({
+            "event_id": "command-1:terminal",
+            "kind": "failed",
+            "status": "failed",
+            "error_code": "command_failed",
+            "correlation_id": "command-1",
+            "diagnostic": {
+                "category": "model_unavailable",
+                "code": "OPENCODE_MODEL_UNAVAILABLE",
+                "phase": "authoring",
+                "retryable": False,
+                "provider": "openai",
+                "model": "gpt-5.5",
+            },
+            "raw_exception": "secret-canary",
+            "prompt": "private prompt canary",
+        })
+        public = project_public_event(event, sequence=1, session_id="session", project_id=project_id)
+        payload = public.model_dump(mode="json")
+        self.assertEqual("OPENCODE_MODEL_UNAVAILABLE", payload["diagnostic"]["code"])
+        self.assertEqual("model_unavailable", payload["diagnostic"]["category"])
+        self.assertNotIn("secret-canary", str(payload))
+        self.assertNotIn("private prompt canary", str(payload))
+
+    def test_session_diagnostics_is_owner_scoped_and_returns_latest_failure(self) -> None:
+        project_id = str(uuid4())
+        store = OpenCodeStore(":memory:")
+        try:
+            session = store.create_session(
+                session_id="session-diag", connector_id="mini", owner_user_id="owner", project_id=project_id,
+            )
+            with store._connection() as connection:
+                connection.execute(
+                    "UPDATE opencode_sessions SET last_heartbeat_at = ? WHERE session_id = ?",
+                    ("2026-09-22T12:00:00Z", session.session_id),
+                )
+            failure = project_public_event(
+                ConnectorEventInput.model_validate({
+                    "event_id": "command-diag:terminal",
+                    "kind": "failed",
+                    "status": "failed",
+                    "error_code": "command_failed",
+                    "correlation_id": "command-diag",
+                    "diagnostic": {
+                        "category": "rate_limit",
+                        "code": "OPENCODE_RATE_LIMIT",
+                        "phase": "authoring",
+                        "retryable": True,
+                        "provider": "openai",
+                        "model": "gpt-5.5",
+                    },
+                }),
+                sequence=1,
+                session_id=session.session_id,
+                project_id=UUID(project_id),
+                created_at=datetime(2026, 9, 22, 12, 1, tzinfo=timezone.utc),
+            )
+            store.add_event(failure)
+            owner = UserContext(provider="clerk", subject="owner", owner_user_id="owner", is_authenticated=True, is_admin=False)
+            with patch("apps.api.opencode_api.OPENCODE_STORE", new=store):
+                result = get_opencode_session_diagnostics(session.session_id, Response(), owner)
+                self.assertEqual("OPENCODE_RATE_LIMIT", result.latest_failure.code)
+                self.assertEqual("command-diag", result.latest_failure.command_id)
+                self.assertTrue(result.latest_failure.retryable)
+                self.assertEqual("2026-09-22T12:00:00+00:00", result.last_successful_poll_at.isoformat())
+                foreign = UserContext(provider="clerk", subject="other", owner_user_id="other", is_authenticated=True, is_admin=False)
+                with self.assertRaises(HTTPException) as denied:
+                    get_opencode_session_diagnostics(session.session_id, Response(), foreign)
+                self.assertEqual(404, denied.exception.status_code)
+        finally:
+            store.close()
+
+    def test_diagnostic_schema_rejects_raw_fields_and_oversized_codes(self) -> None:
+        base = {
+            "event_id": "command-1:terminal",
+            "kind": "failed",
+            "status": "failed",
+            "diagnostic": {
+                "category": "unknown",
+                "code": "OPENCODE_PROMPT_FAILED",
+                "phase": "authoring",
+                "retryable": False,
+            },
+        }
+        with self.assertRaises(Exception):
+            ConnectorEventInput.model_validate({
+                **base,
+                "diagnostic": {**base["diagnostic"], "raw_response": "secret-canary"},
+            })
+        with self.assertRaises(Exception):
+            ConnectorEventInput.model_validate({
+                **base,
+                "diagnostic": {**base["diagnostic"], "code": "X" * 81},
+            })
 
     def test_restricted_mcp_surface_excludes_forbidden_tools(self) -> None:
         names = {str(tool["name"]) for tool in opencode_mcp_tools()}
