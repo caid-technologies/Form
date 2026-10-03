@@ -191,7 +191,6 @@ const PINNED_CHATS_STORAGE_KEY = "forma.pinnedChats";
 const LEGACY_PROJECT_CHAT_STORAGE_PREFIX = "forma.projectChat.";
 const MAX_PROJECT_CHAT_MESSAGES = 80;
 const MAX_CHAT_INDEX_ITEMS = 200;
-const INITIAL_CHAT_TIMESTAMP = "2000-01-01T00:00:00.000Z";
 const NEW_PROJECT_TITLE = "New project";
 const EMPTY_GALLERY_IMAGES: Record<string, ProjectImageCandidate | null> = {};
 const EMPTY_PROJECT_HISTORY: any[] = [];
@@ -486,19 +485,6 @@ function chatTimestamp() {
   return new Date().toISOString();
 }
 
-function initialChatMessages(timestamp: string = INITIAL_CHAT_TIMESTAMP): ChatMessage[] {
-  return [
-    {
-      id: "assistant-welcome",
-      role: "assistant",
-      content:
-        "Tell me what you want to build. I can turn it into a project with parts, wiring, mechanical notes, validation, jobs, and optional product images.",
-      status: "idle",
-      timestamp,
-    },
-  ];
-}
-
 function validChatStatus(value: any): ChatMessage["status"] {
   return ["idle", "loading", "success", "error", "cancelled", "interrupted"].includes(value) ? value : "idle";
 }
@@ -509,6 +495,9 @@ function validChatRole(value: any): ChatMessage["role"] {
 
 function normalizeChatMessage(value: any): ChatMessage | null {
   if (!value || typeof value !== "object" || typeof value.content !== "string") return null;
+  // Older clients saved onboarding copy as an assistant reply. Keep it out of
+  // restored conversations and subsequent writes; real replies keep their IDs.
+  if (value.id === "assistant-welcome") return null;
   const buildExecutionStatus = typeof value.buildExecution?.status === "string"
     ? value.buildExecution.status
     : "";
@@ -1753,7 +1742,7 @@ export function FormaWorkspace({
   const [activeChatId, setActiveChatId] = useState(() => currentRouteChatId ? safeDecodeChatId(currentRouteChatId) : newBuildChatId());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => initialChatMessages());
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [pendingHumanContext, setPendingHumanContext] = useState<PendingHumanContext | null>(null);
   const contextProjectIdsRef = useRef<Record<string, string>>({});
   const contextBuildWatchersRef = useRef<Set<string>>(new Set());
@@ -2710,7 +2699,7 @@ export function FormaWorkspace({
       createdAt: chatTimestamp(),
       projectCount: 0,
     });
-    setChatMessages(initialChatMessages());
+    setChatMessages([]);
     setPrompt("");
     setProjectChatInput("");
     setPendingHumanContext(null);
@@ -2761,7 +2750,7 @@ export function FormaWorkspace({
       setChatThreads((current) => ({ ...current, [item.chatId]: storedMessages }));
       setChatMessages(storedMessages);
     } else {
-      setChatMessages(initialChatMessages());
+      setChatMessages([]);
     }
     const projectAlreadyLoaded = Boolean(
       item.projectId && projectIdFromIR(projectIR) === item.projectId
@@ -2818,11 +2807,6 @@ export function FormaWorkspace({
     setLocalChatItems(authRequired ? [] : readStoredChatIndex(chatStorageScope));
     setPinnedChatIds(new Set(readPinnedChatIds(chatStorageScope)));
     setChatIndexLoaded(true);
-    setChatMessages((current) => (
-      current.length === 1 && current[0]?.id === "assistant-welcome"
-        ? [{ ...current[0], timestamp: chatTimestamp() }]
-        : current
-    ));
   }, [authRequired, chatStorageScope]);
 
   useLayoutEffect(() => {
@@ -5345,7 +5329,7 @@ export function FormaWorkspace({
         ? mergeFetchedChatMessages(storedMessages, current, true)
         : storedMessages);
     } else {
-      setChatMessages((current) => activeChatId === chatId ? current : initialChatMessages());
+      setChatMessages((current) => activeChatId === chatId ? current : []);
     }
 
     if (!chatSourcesReady) {
@@ -5431,7 +5415,7 @@ export function FormaWorkspace({
       setProjectIR(null);
       setActiveTab("overview");
       const nextMessages = messagesWithoutMissingProject(
-        storedMessages.length ? storedMessages : initialChatMessages(),
+        storedMessages,
         routedChatProjectId
       );
       setChatThreads((current) => ({
