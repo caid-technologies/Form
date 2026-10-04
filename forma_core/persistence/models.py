@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, Float, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
 
@@ -173,6 +173,24 @@ class DBProjectRevision(Base):
     source_job_id = Column(String, index=True, nullable=False)
     payload_json = Column(JSON, nullable=False)
     created_at = Column(String, index=True, nullable=False)
+
+
+class DBProjectShare(Base):
+    """Revocable revision capabilities; only a digest of each token is stored."""
+
+    __tablename__ = "project_shares"
+    __table_args__ = (
+        Index("ix_project_shares_owner_revision_created", "project_id", "owner_user_id", "revision_id", "created_at", "id"),
+        Index("ix_project_shares_revision_id", "revision_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.project_id", ondelete="CASCADE"), nullable=False)
+    revision_id = Column(String, ForeignKey("project_revisions.id", ondelete="CASCADE"), nullable=False)
+    owner_user_id = Column(String, nullable=False)
+    token_hash = Column(String(64), unique=True, nullable=False)
+    created_at = Column(String, nullable=False)
+    revoked_at = Column(String, nullable=True)
 
 
 class DBCliProject(Base):

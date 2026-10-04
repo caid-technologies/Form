@@ -1454,6 +1454,22 @@ def get_project_revision_by_source_job(
     return ProjectStateService(_DATABASE_REPOSITORY).get_by_source_job(project_id, owner_user_id, source_job_id)
 
 
+def insert_project_share(record: Dict[str, Any]) -> None:
+    _DATABASE_REPOSITORY.insert_project_share(record)
+
+
+def get_active_project_share(project_id: str, owner_user_id: str, revision_id: str, token_hash: str) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.get_active_project_share(project_id, owner_user_id, revision_id, token_hash)
+
+
+def list_project_shares(project_id: str, owner_user_id: str, revision_id: str, *, limit: int, offset: int) -> List[Any]:
+    return _DATABASE_REPOSITORY.list_project_shares(project_id, owner_user_id, revision_id, limit=limit, offset=offset)
+
+
+def revoke_project_share(project_id: str, owner_user_id: str, revision_id: str, share_id: str, revoked_at: str) -> None:
+    _DATABASE_REPOSITORY.revoke_project_share(project_id, owner_user_id, revision_id, share_id, revoked_at)
+
+
 def list_project_revisions(project_id: str, owner_user_id: str, *, limit: int = 21, before: int | None = None) -> List[ProjectRevision]:
     """Return a bounded page of the owner's saved snapshots."""
     return ProjectStateService(_DATABASE_REPOSITORY).list_revisions(project_id, owner_user_id, limit=limit, before=before)

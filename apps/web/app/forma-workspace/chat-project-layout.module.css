@@ -124,6 +124,18 @@
 .snapshotNav { display: flex; flex: 0 0 auto; gap: 5px; padding: 8px; overflow-x: auto; border-bottom: 1px solid var(--forma-border); }
 .snapshotNav .button { flex-shrink: 0; }
 .snapshotActions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.shareDialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--forma-border, #ffffff25); border-radius: 12px; background: var(--forma-surface, #181b22); color: var(--forma-text-body, #e4e4e7); }
+.shareDialog::backdrop { background: #0008; }
+.shareBody { padding: 16px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.shareBody h3 { margin: 20px 0 8px; font-size: 13px; }
+.shareCreated { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 16px; }
+.shareCreated label { width: 100%; }
+.shareCreated input { display: block; width: 100%; margin-top: 5px; padding: 8px; border: 1px solid var(--forma-border, #ffffff25); border-radius: 6px; background: var(--forma-page, #0f1117); color: inherit; }
+.shareCreated small, .shareLinks time { color: var(--forma-text-muted, #a1a1aa); }
+.shareLinks { margin: 0; padding: 0; list-style: none; }
+.shareLinks li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--forma-border, #ffffff18); }
+.shareLinks li > div { display: flex; flex-direction: column; }
+.shareLinks time { font-size: 11px; }
 @container (max-width: 640px) {
   .historyPanel { position: absolute; inset: 0 0 0 auto; width: min(300px, 100%); box-shadow: -8px 0 24px #0002; }
 }

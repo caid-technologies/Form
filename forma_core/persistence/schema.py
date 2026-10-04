@@ -79,6 +79,10 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         ),
     ),
     TableContract(
+        "project_shares",
+        ("id", "project_id", "revision_id", "owner_user_id", "token_hash", "created_at", "revoked_at"),
+    ),
+    TableContract(
         "cli_projects",
         (
             "project_id", "workspace_id", "owner_user_id", "creation_channel", "title",

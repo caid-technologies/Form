@@ -34,8 +34,8 @@ function saveFile(content: string, filename: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function SnapshotContent({ snapshot, apiUrl, getHeaders }: {
-  snapshot: ProjectRevisionSnapshot; apiUrl: string; getHeaders: () => Promise<Record<string, string>>;
+export function SnapshotContent({ snapshot, apiUrl, getHeaders, shared = false }: {
+  snapshot: ProjectRevisionSnapshot; apiUrl: string; getHeaders: () => Promise<Record<string, string>>; shared?: boolean;
 }) {
   const [tab, setTab] = useState("overview");
   const [toggles, setToggles] = useState<Record<string, boolean>>({});
@@ -62,7 +62,7 @@ function SnapshotContent({ snapshot, apiUrl, getHeaders }: {
       case "mechanical": return <MechanicalPanel systemArchitecture={ir.system_architecture} toggles={toggles} setToggles={setToggles} electricalActive={electrical}
         setElectricalActive={setElectrical} components={components} features={features} metadata={metadata} mechanical={ir.mechanical || {}}
         cadModel={cad && typeof cad === "object" ? cad as Record<string, any> : null} />;
-      case "cad": return <CadModelPanel cadModel={cad} apiUrl={apiUrl} getHeaders={getHeaders} revisionId={snapshot.revision_id} />;
+      case "cad": return <CadModelPanel cadModel={cad} apiUrl={apiUrl} getHeaders={getHeaders} revisionId={snapshot.revision_id} shared={shared} />;
       case "bom": return <BomPanel components={ir.bom?.length ? ir.bom : components} metrics={metrics}
         cadSources={ir.mechanical?.cad_sources || []} fabricationCost={Number(ir.mechanical?.fabrication_cost_estimate_usd || 0)} canDownloadAssets />;
       case "schematic": return <SchematicCanvas project={schematic} />;
@@ -76,7 +76,7 @@ function SnapshotContent({ snapshot, apiUrl, getHeaders }: {
           }), `project-v${snapshot.revision}.md`, "text/markdown;charset=utf-8")}>Build documentation</button>
           {hasCad && <button type="button" className={styles.button} onClick={() => setTab("cad")}>Open saved CAD</button>}
         </div>
-        <p>Return to latest to create new mesh exports or G-code.</p>
+        {!shared && <p>Return to latest to create new mesh exports or G-code.</p>}
       </div>;
       default: return null;
     }

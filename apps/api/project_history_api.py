@@ -109,6 +109,11 @@ def get_project_snapshot(
 ) -> RevisionSnapshot:
     """Hydrate only assets recorded in this version; never discover newer images."""
     revision = _revision(project_id, revision_id, _owner(project_id, user))
+    return _snapshot(project_id, revision_id, revision, response)
+
+
+def _snapshot(project_id: UUID, revision_id: UUID, revision: ProjectRevision, response: Response) -> RevisionSnapshot:
+    """Render an authorized immutable snapshot without discovering live assets."""
     ir = revision.state.model_dump(mode="json")
     ir["assembly_metadata"] = hydrate_image_storage_metadata(
         ir.get("assembly_metadata") or {}, str(project_id), discover_missing=False,
@@ -133,6 +138,11 @@ def get_snapshot_cad(
 ) -> Response:
     """Serve bytes only when the exact owned snapshot references their checksum."""
     revision = _revision(project_id, revision_id, _owner(project_id, user))
+    return _cad_response(project_id, revision, sha256)
+
+
+def _cad_response(project_id: UUID, revision: ProjectRevision, sha256: str) -> Response:
+    """Return verified CAD bytes from an already authorized revision."""
     cad = revision.state.cad_model
     if not isinstance(cad, dict) or len(sha256) != 64 or cad.get("stored_sha256") != sha256:
         raise HTTPException(status_code=404, detail="This version has no matching STEP artifact.")

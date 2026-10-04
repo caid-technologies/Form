@@ -439,6 +439,28 @@ class SupabaseRepository:
                 .eq("id", revision_id).limit(1).execute().data or [])
         return _record(rows[0]) if rows else None
 
+    def insert_project_share(self, record: Dict[str, Any]) -> None:
+        self._client.table("project_shares").insert(record).execute()
+
+    def get_active_project_share(self, project_id: str, owner_user_id: str, revision_id: str, token_hash: str) -> Optional[Any]:
+        rows = (self._client.table("project_shares").select("*")
+                .eq("project_id", project_id).eq("owner_user_id", owner_user_id)
+                .eq("revision_id", revision_id).eq("token_hash", token_hash)
+                .is_("revoked_at", "null").limit(1).execute().data or [])
+        return _record(rows[0]) if rows else None
+
+    def list_project_shares(self, project_id: str, owner_user_id: str, revision_id: str, *, limit: int, offset: int) -> List[Any]:
+        rows = (self._client.table("project_shares").select("id,revision_id,created_at,revoked_at")
+                .eq("project_id", project_id).eq("owner_user_id", owner_user_id).eq("revision_id", revision_id)
+                .order("created_at", desc=True).order("id", desc=True)
+                .range(offset, offset + limit - 1).execute().data or [])
+        return [_record(row) for row in rows]
+
+    def revoke_project_share(self, project_id: str, owner_user_id: str, revision_id: str, share_id: str, revoked_at: str) -> None:
+        (self._client.table("project_shares").update({"revoked_at": revoked_at})
+         .eq("id", share_id).eq("project_id", project_id).eq("owner_user_id", owner_user_id)
+         .eq("revision_id", revision_id).is_("revoked_at", "null").execute())
+
     def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]:
         rows = (
             self._client.table("project_revisions")

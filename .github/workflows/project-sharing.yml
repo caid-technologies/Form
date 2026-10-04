@@ -1,0 +1,78 @@
+name: Project sharing
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - apps/api/project_share_api.py
+      - apps/api/project_history_api.py
+      - apps/web/**
+      - forma_core/database.py
+      - forma_core/persistence/**
+      - tests/projects/**
+      - tests/persistence/project_shares_migration.sql
+      - supabase/migrations/**
+      - .github/workflows/project-sharing.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: project-sharing-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sharing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sharing_test
+        ports: [5432:5432]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install backend and test dependencies
+        run: python -m pip install -e '.[backend]' pytest httpx
+      - name: Test stored capabilities and owner-only management
+        run: python -m pytest tests/projects/test_project_sharing.py tests/projects/test_project_history.py tests/persistence/test_project_share_supabase.py -q
+      - name: Check migration, grants, and cascading deletion
+        env:
+          PGPASSWORD: postgres
+        run: psql -h 127.0.0.1 -U postgres -d sharing_test -v ON_ERROR_STOP=1 -f tests/persistence/project_shares_migration.sql
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Check sharing links
+        working-directory: apps/web
+        run: node --experimental-strip-types --test test/project-share.test.ts test/project-history.test.ts
+      - name: Build frontend
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npm run build
+      - name: Install Chromium
+        working-directory: apps/web
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Share, open anonymously, and revoke with real SQLite
+        working-directory: apps/web
+        run: npx --no-install playwright test --config playwright.sharing.config.ts
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: project-sharing-browser-results
+          path: apps/web/test-results/
+          retention-days: 7

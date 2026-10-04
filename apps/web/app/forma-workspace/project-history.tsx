@@ -14,6 +14,7 @@ export type ProjectHistoryConfig = {
   apiUrl: string;
   enabled: boolean;
   latestRevision: number | null;
+  latestRevisionId?: string | null;
   getHeaders: () => Promise<Record<string, string>>;
   loadLatest: (signal: AbortSignal) => Promise<boolean>;
 };

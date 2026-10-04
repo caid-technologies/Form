@@ -26,6 +26,7 @@ from forma_core.persistence.models import (
     DBProjectWorkflow,
     DBProjectWorkflowTransition,
     DBProjectRevision,
+    DBProjectShare,
     DBCliProject,
     DBCliProjectDelivery,
     DBCliProjectRevision,
@@ -512,6 +513,38 @@ class SqlAlchemyRepository:
                 DBProjectRevision.owner_user_id == owner_user_id,
                 DBProjectRevision.id == revision_id,
             ).first()
+
+    def insert_project_share(self, record: Dict[str, Any]) -> None:
+        with self._session() as session, session.begin():
+            session.add(DBProjectShare(**record))
+
+    def get_active_project_share(self, project_id: str, owner_user_id: str, revision_id: str, token_hash: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBProjectShare).filter(
+                DBProjectShare.project_id == project_id,
+                DBProjectShare.owner_user_id == owner_user_id,
+                DBProjectShare.revision_id == revision_id,
+                DBProjectShare.token_hash == token_hash,
+                DBProjectShare.revoked_at.is_(None),
+            ).first()
+
+    def list_project_shares(self, project_id: str, owner_user_id: str, revision_id: str, *, limit: int, offset: int) -> List[Any]:
+        with self._session() as session:
+            return session.query(DBProjectShare).filter(
+                DBProjectShare.project_id == project_id,
+                DBProjectShare.owner_user_id == owner_user_id,
+                DBProjectShare.revision_id == revision_id,
+            ).order_by(DBProjectShare.created_at.desc(), DBProjectShare.id.desc()).offset(offset).limit(limit).all()
+
+    def revoke_project_share(self, project_id: str, owner_user_id: str, revision_id: str, share_id: str, revoked_at: str) -> None:
+        with self._session() as session, session.begin():
+            session.query(DBProjectShare).filter(
+                DBProjectShare.id == share_id,
+                DBProjectShare.project_id == project_id,
+                DBProjectShare.owner_user_id == owner_user_id,
+                DBProjectShare.revision_id == revision_id,
+                DBProjectShare.revoked_at.is_(None),
+            ).update({"revoked_at": revoked_at}, synchronize_session=False)
 
     def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]:
         with self._session() as session:

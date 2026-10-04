@@ -166,6 +166,7 @@ from apps.api.design_briefs_api import router as design_briefs_router
 from apps.api.context_gathering_api import router as context_gathering_router
 from apps.api.project_workflow_api import router as project_workflow_router
 from apps.api.project_history_api import router as project_history_router
+from apps.api.project_share_api import router as project_share_router
 from apps.api.readiness_api import router as readiness_router
 from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 from apps.api.worker_plans_api import router as worker_plans_router
@@ -362,7 +363,7 @@ app.add_middleware(
     allow_origins=cors_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-Project-Share"],
 )
 
 app.include_router(logs_router, dependencies=[Depends(require_admin_user_context)])
@@ -371,6 +372,7 @@ app.include_router(design_briefs_router)
 app.include_router(context_gathering_router)
 app.include_router(project_workflow_router)
 app.include_router(project_history_router)
+app.include_router(project_share_router)
 app.include_router(readiness_router)
 app.include_router(worker_plans_router)
 app.include_router(user_integrations_router)

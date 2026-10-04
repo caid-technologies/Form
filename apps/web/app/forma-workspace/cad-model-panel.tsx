@@ -21,9 +21,10 @@ type CadModelPanelProps = {
   apiUrl?: string;
   getHeaders?: () => Promise<Record<string, string>>;
   revisionId?: string;
+  shared?: boolean;
 };
 
-export default function CadModelPanel({ cadModel, apiUrl, getHeaders, revisionId }: CadModelPanelProps) {
+export default function CadModelPanel({ cadModel, apiUrl, getHeaders, revisionId, shared = false }: CadModelPanelProps) {
   const descriptor = useMemo(() => resolveCadModel(cadModel), [cadModel]);
   const artifact = useMemo(() => nativeStepArtifact(cadModel), [cadModel]);
   const headersRef = useRef(getHeaders);
@@ -59,7 +60,7 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders, revisionId
         const { OpenCadApiClient } = await import("opencad-viewport");
         if (cancelled) return;
         const api = new OpenCadApiClient(apiBaseUrl, kernelUrl);
-        const snapshotUrl = artifact && apiUrl && revisionId ? `${apiUrl}${nativeStepDownloadPath(artifact, revisionId)}` : null;
+        const snapshotUrl = artifact && apiUrl && revisionId ? `${apiUrl}${nativeStepDownloadPath(artifact, revisionId).replace("/history/", shared ? "/shared/" : "/history/")}` : null;
         const headers = snapshotUrl ? await headersRef.current?.() : undefined;
         const mesh = descriptor.kind === "shape"
           ? await api.getMesh(descriptor.shapeId)
@@ -79,7 +80,7 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders, revisionId
       cancelled = true;
       controller.abort();
     };
-  }, [descriptor, artifact, apiUrl, revisionId]);
+  }, [descriptor, artifact, apiUrl, revisionId, shared]);
 
   if (!descriptor) {
     return <CadModelState icon={<Box className="h-7 w-7" />} message="No CAD model attached to this project." />;
