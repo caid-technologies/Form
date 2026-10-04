@@ -83,3 +83,10 @@ After deploying both repositories and the API CAD runtime, continue the existing
 cube conversation and request the STEP again. Verify the rendered labelled cube,
 download, and dimensions. A completely new chat should also work from the original
 cube brief; a new chat is not required to repair a preserved conversation.
+
+## Reusable component geometry
+
+See [Persistent component asset library](component-asset-library.md) for the
+library-first tools, pinned versions, private representation downloads and the
+SG90 robot-arm demonstration. Library attachment preserves a component reference;
+assembly CAD authoring remains a separate operation.

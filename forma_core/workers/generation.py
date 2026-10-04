@@ -268,6 +268,9 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIntermediat
     if cad_artifact is not None:
         artifacts.append(cad_artifact)
 
+    from forma_core.assets.project import component_pin_artifacts
+    artifacts.extend(component_pin_artifacts(state))
+
     generation_run = (state.assembly_metadata or {}).get("generation_run") or {}
     generation_records = generation_run.get("records") if isinstance(generation_run, dict) else {}
     generation_records = generation_records if isinstance(generation_records, dict) else {}
@@ -605,6 +608,9 @@ def _success_result(request: WorkerRequest, outcome: ProjectRevisionOutcome) -> 
 
 
 def _generation_retry_metadata(state: HardwareIntermediateRepresentation) -> dict[str, Any] | None:
+    from forma_core.assets.project import component_pin_artifacts
+    artifacts.extend(component_pin_artifacts(state))
+
     generation_run = (state.assembly_metadata or {}).get("generation_run") or {}
     records = generation_run.get("records") if isinstance(generation_run, dict) else None
     if not isinstance(records, dict):

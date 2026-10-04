@@ -1,0 +1,14 @@
+{
+  "step_imported": true,
+  "assembly_brep_valid": true,
+  "solid_count": 50,
+  "envelope_mm": [
+    162.91837556657,
+    82.0,
+    131.06755271870503
+  ],
+  "animation_frames": 96,
+  "physical_tested": false,
+  "collision_certified": false,
+  "servo_reference": "approximate SG90 positional; exact revision unconfirmed"
+}

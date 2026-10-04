@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -172,9 +173,15 @@ class ProjectArtifactStorage:
         if backend == "local":
             target = Path(self.config["directory"]) / Path(*key.split("/"))
             target.parent.mkdir(parents=True, exist_ok=True)
-            temporary = target.with_suffix(f"{target.suffix}.tmp")
-            temporary.write_bytes(content)
-            temporary.replace(target)
+            # Each writer needs its own temporary file; identical concurrent puts
+            # previously raced over one .tmp path and could lose a successful write.
+            with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as handle:
+                temporary = Path(handle.name)
+                handle.write(content)
+            try:
+                temporary.replace(target)
+            finally:
+                temporary.unlink(missing_ok=True)
         elif backend == "supabase":
             bucket = self._supabase_bucket()
             options = {
