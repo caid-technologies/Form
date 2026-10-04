@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "apps/api/opencode*"
+      - "apps/api/component_assets.py"
+      - "forma_core/assets/**"
+      - "tests/integrations/test_component_assets.py"
       - "apps/api/a2a.py"
       - "forma_core/image_providers.py"
       - "tests/providers/test_image_providers.py"
@@ -42,3 +45,5 @@ jobs:
       - run: python .agents/skills/forma-hardware/scripts/cad.py check
       - run: python -m pytest tests/providers/test_image_providers.py tests/api/test_mcp_agent_compatibility.py tests/api/test_hosted_chat_maintenance.py -q
       - run: python -m pytest tests/opencode tests/projects/test_cad_generation.py tests/projects/test_solid_cad.py tests/projects/test_mechanism_benchmarks.py tests/projects/test_gear_cad.py tests/projects/test_demo_printer_exports.py -q
+
+      - run: python -m pytest tests/integrations/test_component_assets.py tests/integrations/test_project_artifacts.py -q

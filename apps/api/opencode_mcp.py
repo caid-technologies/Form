@@ -10,6 +10,8 @@ from starlette.concurrency import run_in_threadpool
 
 from apps.api.a2a import _persist_mcp_compile
 from apps.api.auth import UserContext
+from apps.api.component_assets import call_asset_tool, library_tools
+from forma_core.assets.models import AssetToolArguments
 from apps.api.opencode_images import ImageToolError, generate_project_image, image_metadata_for_agent, is_image_metadata
 from forma_core.workspaces.projects.cad_generation import CadGenerationError, ensure_native_cad_model
 from forma_core.debug import new_error_correlation_id
@@ -57,7 +59,7 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
         "required": ["project_ir"],
         "additionalProperties": False,
     }
-    return [
+    return library_tools() + [
         {
             "name": "forma.opencode.create_project",
             "description": "Initialize a missing private project. If a project already exists, return it unchanged. Never use this to reset or resume a design.",
@@ -150,13 +152,21 @@ async def _handle_request(request: McpJsonRpcRequest, capability: ConnectorCapab
     except Exception:
         logger.warning("Restricted OpenCode MCP tool failed")
         return _error(request_id, -32000, "The OpenCode project tool could not complete.", "mcp_tool_failed")
-    return _result(request_id, {"content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result})
+    response = {"content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result}
+    if result.get("status") in {"invalid_request", "invalid_asset", "recovery_required"}:
+        response["isError"] = True
+    return _result(request_id, response)
 
 
 async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArguments, capability: ConnectorCapability) -> dict[str, object]:
     allowed = {tool["name"] for tool in opencode_mcp_tools()}
     if name not in allowed:
         raise PermissionError("The requested tool is not part of the project-only surface.")
+    if name.startswith("forma.opencode.asset_"):
+        if not isinstance(arguments, AssetToolArguments):
+            raise ValueError("Asset arguments are required.")
+        return await run_in_threadpool(call_asset_tool, name, arguments, capability,
+                                       lambda: _assert_session_active(capability))
     if name == "forma.opencode.generate_image":
         if not isinstance(arguments, GenerateImageArguments):
             raise ValueError("Image arguments are required.")
@@ -226,7 +236,8 @@ def _compile(project: HardwareIntermediateRepresentation, project_id: str, user_
     from forma_core.workspaces.projects.state import ProjectStateError
     # Images are authored by the server tool; a subsequent IR edit cannot erase
     # them, replace their provenance or make the agent echo their base64 payloads.
-    metadata = {key: value for key, value in (project.assembly_metadata or {}).items() if not is_image_metadata(key)}
+    metadata = {key: value for key, value in (project.assembly_metadata or {}).items()
+                if not is_image_metadata(key) and key != "component_asset_refs"}
     try:
         previous = get_latest_project_revision(project_id, user_context.owner_user_id or "")
     except ProjectStateError as exc:
@@ -235,7 +246,8 @@ def _compile(project: HardwareIntermediateRepresentation, project_id: str, user_
         previous = None
     reconcile_architecture(project, previous.state if previous else None)
     if previous is not None and isinstance(previous.state.assembly_metadata, dict):
-        metadata.update({key: value for key, value in previous.state.assembly_metadata.items() if is_image_metadata(key)})
+        metadata.update({key: value for key, value in previous.state.assembly_metadata.items()
+                         if is_image_metadata(key) or key == "component_asset_refs"})
     metadata.update({"project_id": project_id, "authoring_agent": "opencode"})
     project.assembly_metadata = metadata
     issues = validate_circuit(project.components, project.nets, project.requirements)

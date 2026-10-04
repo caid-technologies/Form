@@ -1,0 +1,11 @@
+{
+  "engine": "PGlite PostgreSQL",
+  "migration_applied": true,
+  "duplicate_ingestion_rows": 1,
+  "immutable_payload_preserved": true,
+  "service_role_update_denied": true,
+  "anon_select_denied": true,
+  "authenticated_select_denied": true,
+  "rls_enabled": true,
+  "live_supabase_tested": false
+}

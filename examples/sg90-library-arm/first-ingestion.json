@@ -1,0 +1,28 @@
+{
+  "project_id": "a3e67cde-4b49-4d9e-bc2a-75c7e52d4001",
+  "asset_id": "4dec9267fdebce60ef81ef7757be618e00fac662422ade9c20d7b96b80f721a1",
+  "version": "6b53b7a51855bd4e9a79e65387b28fa471a6924b0ae1a19b8370ca94bfdd4db2",
+  "instances": 4,
+  "external_work": {
+    "web_searches": 0,
+    "source_downloads": 0,
+    "cad_generations": 1,
+    "preview_conversions": 1
+  },
+  "library_metrics": {
+    "hits": 1,
+    "misses": 1,
+    "source_calls": 1,
+    "blob_writes": 2,
+    "registrations": 1,
+    "integrity_failures": 0
+  },
+  "revision_id": "53a07675-84c8-48b3-a868-5e81f8c6d648",
+  "pinned_instances": [
+    "S1",
+    "S2",
+    "S3",
+    "S4"
+  ],
+  "note": "Generated approximate reference; this proves library reuse and persistence, not #530 web sourcing or physical performance."
+}

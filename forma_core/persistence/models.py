@@ -425,3 +425,15 @@ class DBUserSettings(Base):
     model_training_opt_out = Column(Boolean, nullable=False, default=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+
+
+class DBComponentAssetVersion(Base):
+    """Immutable component metadata; blobs use ProjectArtifactStorage."""
+    __tablename__ = "component_asset_versions"
+    asset_id = Column(String, primary_key=True)
+    version = Column(String, primary_key=True)
+    scope_key = Column(String, nullable=False, index=True)
+    identity_key = Column(String, nullable=False, index=True)
+    family_key = Column(String, nullable=False, index=True)
+    payload_json = Column(JSON, nullable=False)
+    created_at = Column(String, nullable=False)

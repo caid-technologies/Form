@@ -251,6 +251,9 @@ class ConnectorCompletion(BaseModel):
     error_code: str | None = Field(default=None, max_length=80)
 
 
+from forma_core.assets.models import AssetToolArguments
+
+
 class McpToolArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -336,12 +339,14 @@ class McpToolsListParams(McpRequestParams):
 
 class McpToolCallParams(McpRequestParams):
     name: str | None = None
-    arguments: McpToolArguments | GenerateImageArguments = Field(default_factory=McpToolArguments)
+    arguments: McpToolArguments | GenerateImageArguments | AssetToolArguments = Field(default_factory=McpToolArguments)
 
     @field_validator("arguments", mode="before")
     @classmethod
     def validate_tool_arguments(cls, value: object, info: ValidationInfo) -> McpToolArguments | GenerateImageArguments:
-        model = GenerateImageArguments if info.data.get("name") == "forma.opencode.generate_image" else McpToolArguments
+        name = info.data.get("name") or ""
+        model = (AssetToolArguments if name.startswith("forma.opencode.asset_") else
+                 GenerateImageArguments if name == "forma.opencode.generate_image" else McpToolArguments)
         if isinstance(value, BaseModel):
             value = value.model_dump()
         return model.model_validate(value)
