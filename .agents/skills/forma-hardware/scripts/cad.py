@@ -24,8 +24,8 @@ from typing import Any
 
 
 SUPPORTED_OPENCAD_VERSION = "0.2.4"
-OPENCAD_KINEMATICS_COMMIT = "1c417752eb42d29b951784e80f65ac79c3fb6e0e"
-DEFAULT_OPENCAD_REQUIREMENT = f"opencad[occt] @ git+https://github.com/caid-technologies/OpenCAD.git@{OPENCAD_KINEMATICS_COMMIT}#subdirectory=packages/opencad"
+OPENCAD_ASSEMBLY_TREE_COMMIT = "5c4536b510845d6cda680d96da9fd1bab62f1cd1"
+DEFAULT_OPENCAD_REQUIREMENT = f"opencad[occt] @ git+https://github.com/caid-technologies/OpenCAD.git@{OPENCAD_ASSEMBLY_TREE_COMMIT}#subdirectory=packages/opencad"
 OPENCAD_REQUIREMENT_ENV = "FORMA_OPENCAD_REQUIREMENT"
 SUPPORTED_OUTPUT_SUFFIXES = {".step", ".stp", ".stl"}
 
@@ -108,6 +108,23 @@ class OpenCADRuntime:
                 raise OpenCADError(f"Multi-body CAD export failed: {exc}") from exc
         if tree_output is not None:
             context.save_tree_json(str(tree_output))
+
+        assembly_tree_payload = None
+        assembly_snapshot_version = None
+        assembly_tree = model_globals.get("FORMA_ASSEMBLY_TREE")
+        if assembly_tree is not None:
+            try:
+                from opencad import AssemblyTree, serialize_assembly_tree
+
+                if not isinstance(assembly_tree, AssemblyTree):
+                    assembly_tree = AssemblyTree.model_validate(assembly_tree)
+                snapshot = json.loads(serialize_assembly_tree(assembly_tree))
+            except Exception as exc:
+                raise OpenCADError(f"OpenCAD assembly tree serialization failed: {exc}") from exc
+            assembly_tree_payload = snapshot.get("assembly")
+            assembly_snapshot_version = snapshot.get("version")
+            if not isinstance(assembly_tree_payload, dict):
+                raise OpenCADError("OpenCAD assembly tree serialization returned no assembly payload.")
 
         kinematics = None
         joints = context.kernel.joint_store.all()
@@ -194,6 +211,8 @@ class OpenCADRuntime:
 
         return {
             "features": len(context.tree.nodes) - 1,
+            "assembly_tree": assembly_tree_payload,
+            "assembly_snapshot_version": assembly_snapshot_version,
             "kinematics": kinematics,
             "articulated_bodies": articulated_bodies or None,
             "compliant_preview": compliant_preview,
@@ -254,6 +273,7 @@ def _inspect_runtime(requirement: str) -> tuple[OpenCADRuntime | None, str]:
         return None, f"installed distribution version {distribution_version} is incompatible"
 
     try:
+        from opencad import AssemblyTree, serialize_assembly_tree  # noqa: F401
         from opencad.kernel.core.backend_factory import create_backend
         from opencad.kinematics import evaluate_assembly_pose  # noqa: F401
         from opencad.kinematics import GearCoupling, resolve_gear_progress  # noqa: F401

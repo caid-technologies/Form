@@ -94,7 +94,32 @@ def fake_run(order: list[str]):
             )
         if tree is not None:
             tree.write_text("{}", encoding="utf-8")
-        return {"valid": True, "opencad_version": "test"}
+        summary = {"valid": True, "opencad_version": "test"}
+        if model.name == "assembly.py":
+            summary.update({
+                "assembly_snapshot_version": 1,
+                "assembly_tree": {
+                    "id": "product",
+                    "name": "Controller",
+                    "root_ids": ["product"],
+                    "components": {
+                        "product": {
+                            "id": "product",
+                            "name": "Controller",
+                            "child_ids": [],
+                            "geometry_refs": ["shape-root"],
+                            "feature_refs": [],
+                            "transform": {
+                                "translation_mm": [0.0, 0.0, 0.0],
+                                "rotation_quaternion_xyzw": [0.0, 0.0, 0.0, 1.0],
+                            },
+                            "metadata": {},
+                        }
+                    },
+                    "metadata": {},
+                },
+            })
+        return summary
 
     return run
 
@@ -138,11 +163,14 @@ class HierarchicalCadTests(unittest.TestCase):
             side_effect=fake_run(order),
         ):
             self.assertTrue(ensure_native_cad_model(ir, project_id=None, required=False))
+            self.assertTrue(Path(ir.cad_model["assembly_tree_path"]).is_file())
 
         self.assertEqual("U1.py", order[0])
         self.assertEqual("assembly.py", order[1])
         self.assertEqual("assembly.py", order[2])
         self.assertEqual("component-cad-then-assembly", ir.cad_model["authoring_mode"])
+        self.assertEqual("product", ir.cad_model["assembly_tree"]["id"])
+        self.assertEqual(1, ir.cad_model["assembly_snapshot_version"])
         self.assertEqual(1, len(ir.cad_model["component_artifact_ids"]))
         self.assertTrue(ir.cad_model["assembly_artifact_id"])
 

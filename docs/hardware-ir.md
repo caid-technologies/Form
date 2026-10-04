@@ -37,6 +37,8 @@ Additional fields commonly populated at runtime:
 - **mechanical.spatial_relationships** – helpful offsets/alignment relationships.
 - **mechanical.motion_intents** – agent-authored motion intent keyed by component references. Rigid revolute/prismatic intent is resolved into OpenCAD kinematic joints during CAD generation; `cad_model.kinematics` stores OpenCAD-evaluated pose tracks for MECH playback. Compliant intent remains separate from the rigid-joint contract.
 - **mechanical.mechanism_benchmark** – optional bounded additive-mechanism benchmark configuration for the print-in-place captive hinge or monolithic flexure hinge. Generated CAD records manufacturing metadata in `cad_model.mechanism`; flexure visualization uses a separate non-structural `cad_model.compliant_preview` contract.
+- **cad_model.assembly_tree** – OpenCAD's semantic `AssemblyTree` serialized after Forma's system hierarchy and component identities are bound to generated geometry. This is distinct from OpenCAD's parametric feature tree: it describes what the product is made of, not the sequence of CAD operations.
+- **cad_model.assembly_tree_path** – path to the versioned OpenCAD assembly snapshot emitted with the CAD artifacts. Forma remains the source of semantic hierarchy while OpenCAD owns the canonical assembly object and serialization contract.
 
 ## Key relationships
 - **SystemArchitecture → SystemNode:** The complete product nests electrical, mechanical, firmware, and more specific systems. Each node records why it exists, its responsibilities, interfaces, abstract component roles, and detail owner.

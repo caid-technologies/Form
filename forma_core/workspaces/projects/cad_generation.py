@@ -30,6 +30,7 @@ from forma_core.workspaces.projects.design_lifecycle import (
 )
 from forma_core.workspaces.projects.generation_mode import is_progressive_generation
 from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
+from forma_core.workspaces.projects.opencad_assembly import build_opencad_assembly_spec
 from forma_core.workspaces.projects.state import ProjectArtifact
 
 
@@ -146,13 +147,69 @@ def _motion_intent_payload(project: HardwareIntermediateRepresentation) -> list[
     return resolved
 
 
+def _with_opencad_assembly_tree(
+    source: str,
+    project: HardwareIntermediateRepresentation,
+) -> str:
+    """Append OpenCAD AssemblyTree construction to generated CAD source."""
+    spec = repr(build_opencad_assembly_spec(project))
+    return source.rstrip() + "\n\n" + """from opencad import AssemblyComponent, AssemblyTree
+
+FORMA_ASSEMBLY_SPEC = %s
+
+
+def _forma_geometry_refs(binding):
+    binding = binding if isinstance(binding, dict) else {}
+    kind = binding.get("kind")
+    if kind == "exported":
+        exported = globals().get("FORMA_EXPORT_SHAPE_IDS")
+        if isinstance(exported, list):
+            refs = [str(shape_id) for shape_id in exported if shape_id]
+            if refs:
+                return list(dict.fromkeys(refs))
+        shape_id = getattr(globals().get("model"), "shape_id", None)
+        return [str(shape_id)] if shape_id else []
+    if kind == "ref_des":
+        geometry_by_ref = globals().get("FORMA_GEOMETRY_BY_REF")
+        if isinstance(geometry_by_ref, dict):
+            shape_id = geometry_by_ref.get(binding.get("ref_des"))
+            if shape_id:
+                return [str(shape_id)]
+    return []
+
+
+FORMA_ASSEMBLY_TREE = AssemblyTree(
+    id=FORMA_ASSEMBLY_SPEC["id"],
+    name=FORMA_ASSEMBLY_SPEC["name"],
+    root_ids=list(FORMA_ASSEMBLY_SPEC["root_ids"]),
+    components={
+        component_id: AssemblyComponent(
+            id=component_id,
+            name=component["name"],
+            child_ids=list(component.get("child_ids") or []),
+            geometry_refs=_forma_geometry_refs(component.get("geometry_binding")),
+            metadata=dict(component.get("metadata") or {}),
+        )
+        for component_id, component in FORMA_ASSEMBLY_SPEC["components"].items()
+    },
+    metadata=dict(FORMA_ASSEMBLY_SPEC.get("metadata") or {}),
+)
+""" % spec
+
+
 def _cad_source(project: HardwareIntermediateRepresentation) -> str:
     if project.mechanical and project.mechanical.mechanism_benchmark is not None:
         from forma_core.workspaces.projects.mechanism_benchmarks import mechanism_cad_source
-        return mechanism_cad_source(project.mechanical.mechanism_benchmark)
+        return _with_opencad_assembly_tree(
+            mechanism_cad_source(project.mechanical.mechanism_benchmark),
+            project,
+        )
     if project.mechanical and project.mechanical.cad_operations:
         from forma_core.workspaces.projects.solid_cad import solid_cad_source
-        return solid_cad_source(project.mechanical.cad_operations)
+        return _with_opencad_assembly_tree(
+            solid_cad_source(project.mechanical.cad_operations),
+            project,
+        )
     width, depth, height = _project_dimensions(project)
     mechanical = project.mechanical
     enclosure_text = " ".join(
@@ -165,7 +222,7 @@ def _cad_source(project: HardwareIntermediateRepresentation) -> str:
     wall = max(1.5, min(3.0, min(width, depth, height) / 12.0))
     placements = json.dumps(_placement_payload(project), sort_keys=True)
     motion_intents = repr(_motion_intent_payload(project))
-    return """from opencad import Part, Sketch, get_default_context
+    source = """from opencad import Part, Sketch, get_default_context
 
 
 def xy_prism(x, y, z, length, width, height, name):
@@ -303,6 +360,11 @@ FORMA_EXPORT_SHAPE_IDS = [model.shape_id] + [
     for ref_des in sorted(MOVING_REFS)
     if ref_des in PARTS and PARTS[ref_des].shape_id
 ]
+FORMA_GEOMETRY_BY_REF = {
+    ref_des: part.shape_id
+    for ref_des, part in PARTS.items()
+    if part.shape_id
+}
 
 context = get_default_context()
 for intent in MOTION_INTENTS:
@@ -336,6 +398,7 @@ for intent in MOTION_INTENTS:
 
 model
 """ % (width, depth, height, wall, open_frame, placements, motion_intents)
+    return _with_opencad_assembly_tree(source, project)
 
 
 def _adapter_path() -> Path:
@@ -773,6 +836,23 @@ def ensure_native_cad_model(
         model_path.write_text(assembly_source, encoding="utf-8")
         step_summary = _run_adapter(adapter, model_path, step_path, tree_path)
         _run_adapter(adapter, model_path, stl_path)
+        assembly_tree = step_summary.get("assembly_tree")
+        if not isinstance(assembly_tree, dict):
+            raise CadGenerationError("OpenCAD did not return the Forma assembly hierarchy.")
+        assembly_snapshot_version = int(step_summary.get("assembly_snapshot_version") or 1)
+        assembly_tree_path = root / "outputs" / "assembly.component-tree.json"
+        assembly_tree_path.write_text(
+            json.dumps(
+                {
+                    "version": assembly_snapshot_version,
+                    "assembly": assembly_tree,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         step_bytes = step_path.read_bytes()
         checksum = hashlib.sha256(step_bytes).hexdigest()
         stl_bytes = stl_path.read_bytes()
@@ -819,6 +899,9 @@ def ensure_native_cad_model(
             "preview_path": str(stl_path),
             "model_source_path": str(model_path),
             "feature_tree_path": str(tree_path),
+            "assembly_tree": assembly_tree,
+            "assembly_tree_path": str(assembly_tree_path),
+            "assembly_snapshot_version": assembly_snapshot_version,
             "opencad_version": step_summary.get("opencad_version"),
             "kinematics": step_summary.get("kinematics"),
             "articulated_bodies": step_summary.get("articulated_bodies"),
@@ -868,6 +951,8 @@ def ensure_native_cad_model(
                     "preview_path": str(stl_path),
                     "model_source_path": str(model_path),
                     "feature_tree_path": str(tree_path),
+                    "assembly_tree_path": str(assembly_tree_path),
+                    "assembly_snapshot_version": assembly_snapshot_version,
                     "project_id": project_id,
                 },
             )
@@ -949,6 +1034,8 @@ def cad_project_artifact(project: HardwareIntermediateRepresentation, project_id
             "preview_path": cad.get("preview_path"),
             "model_source_path": cad.get("model_source_path"),
             "feature_tree_path": cad.get("feature_tree_path"),
+            "assembly_tree_path": cad.get("assembly_tree_path"),
+            "assembly_snapshot_version": cad.get("assembly_snapshot_version"),
             "format": cad.get("format", "step"),
             "component_artifact_ids": cad.get("component_artifact_ids") or [],
             "assembly_artifact_id": cad.get("assembly_artifact_id"),

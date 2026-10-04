@@ -66,6 +66,10 @@ for joint_id, part, ref, center, lower, upper in (
         raise RuntimeError(result.message)
 
 FORMA_EXPORT_SHAPE_IDS = [driver.shape_id, driven.shape_id]
+FORMA_GEOMETRY_BY_REF = {
+    PARAMS["driver_ref"]: driver.shape_id,
+    PARAMS["driven_ref"]: driven.shape_id,
+}
 FORMA_PREVIEW_BODIES = [
     {"shape_id": driver.shape_id, "target_ref": PARAMS["driver_ref"], "name": "Driver gear", "color": "#3b82f6", "center_mm": driver_center, "marker_radius_mm": PARAMS["module_mm"] * PARAMS["driver_teeth"] * 0.3},
     {"shape_id": driven.shape_id, "target_ref": PARAMS["driven_ref"], "name": "Driven gear", "color": "#f59e0b", "center_mm": driven_center, "marker_radius_mm": PARAMS["module_mm"] * PARAMS["driven_teeth"] * 0.3},

@@ -225,6 +225,10 @@ if not joint_result.ok:
     raise RuntimeError("OpenCAD print-in-place joint creation failed: " + joint_result.message)
 
 FORMA_EXPORT_SHAPE_IDS = [fixed.shape_id, moving.shape_id]
+FORMA_GEOMETRY_BY_REF = {
+    PARAMS["fixed_ref"]: fixed.shape_id,
+    PARAMS["moving_ref"]: moving.shape_id,
+}
 FORMA_MECHANISM_METADATA = {
     "family": "print-in-place mechanism",
     "benchmark": PARAMS["kind"],
@@ -284,6 +288,12 @@ flexure = box(
 
 model = left.union(flexure, name="Fixed region to flexure").union(right, name="Monolithic flexure body")
 FORMA_EXPORT_SHAPE_IDS = [model.shape_id]
+# A monolithic flexure is one solid. Both semantic regions intentionally map
+# to that same geometry until subshape/region ownership is available.
+FORMA_GEOMETRY_BY_REF = {
+    PARAMS["fixed_ref"]: model.shape_id,
+    PARAMS["moving_ref"]: model.shape_id,
+}
 
 axis_y = -1.0 if PARAMS["bend_direction"] == "positive_z" else 1.0
 limit = math.radians(PARAMS["nominal_travel_deg"])

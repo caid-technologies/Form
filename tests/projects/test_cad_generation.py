@@ -120,6 +120,30 @@ def complex_mechanical_project() -> HardwareIntermediateRepresentation:
     )
 
 
+def fake_assembly_tree() -> dict:
+    """Return the minimal OpenCAD assembly payload expected from an assembly build."""
+    return {
+        "id": "project",
+        "name": "Forma project",
+        "root_ids": ["project"],
+        "components": {
+            "project": {
+                "id": "project",
+                "name": "Forma project",
+                "child_ids": [],
+                "geometry_refs": ["shape-root"],
+                "feature_refs": [],
+                "transform": {
+                    "translation_mm": [0.0, 0.0, 0.0],
+                    "rotation_quaternion_xyzw": [0.0, 0.0, 0.0, 1.0],
+                },
+                "metadata": {},
+            }
+        },
+        "metadata": {},
+    }
+
+
 class CadGenerationTests(unittest.TestCase):
 
     def test_motion_intent_maps_only_rigid_motion_into_opencad_contract(self) -> None:
@@ -218,7 +242,13 @@ class CadGenerationTests(unittest.TestCase):
             def fake_run(_adapter: Path, _model: Path, output: Path, tree: Path | None = None) -> dict:
                 if output.suffix == ".step":
                     output.write_bytes(b"ISO-10303-21;HEADER;ENDSEC;DATA;ENDSEC;END-ISO-10303-21;")
-                    result = {"valid": True, "opencad_version": "0.2.4", "kinematics": kinematics}
+                    result = {
+                        "valid": True,
+                        "opencad_version": "0.2.4",
+                        "kinematics": kinematics,
+                        "assembly_snapshot_version": 1,
+                        "assembly_tree": fake_assembly_tree(),
+                    }
                 else:
                     output.write_text(
                         "solid model\n"
@@ -269,7 +299,13 @@ class CadGenerationTests(unittest.TestCase):
                     )
                 if tree is not None:
                     tree.write_text("{}", encoding="utf-8")
-                return {"valid": True, "opencad_version": "0.2.4"}
+                result = {"valid": True, "opencad_version": "0.2.4"}
+                if output.suffix == ".step":
+                    result.update({
+                        "assembly_snapshot_version": 1,
+                        "assembly_tree": fake_assembly_tree(),
+                    })
+                return result
 
             project = mechanical_project()
             with patch.dict("os.environ", {"FORMA_CAD_WORKSPACE": workspace}, clear=False), patch(
@@ -325,7 +361,9 @@ class CadGenerationTests(unittest.TestCase):
     def test_complex_mechanical_source_covers_cutouts_vents_and_mounting_rails(self) -> None:
         source = _cad_source(complex_mechanical_project())
 
-        self.assertEqual(24, source.count('"ref_des":'))
+        geometry_source = source.split("from opencad import AssemblyComponent", maxsplit=1)[0]
+        self.assertEqual(24, geometry_source.count('"ref_des":'))
+        self.assertIn("FORMA_ASSEMBLY_SPEC", source)
         for feature in (
             "Front display opening",
             "OLED bezel",
