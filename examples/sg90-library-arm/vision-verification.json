@@ -1,0 +1,47 @@
+{
+  "animations": {
+    "sg90-vision-pick-and-place.gif": {
+      "frames": 180,
+      "duration_ms": 12000,
+      "dimensions": [
+        880,
+        660
+      ]
+    },
+    "sg90-wrist-camera-pov.gif": {
+      "frames": 180,
+      "duration_ms": 12000,
+      "dimensions": [
+        880,
+        660
+      ]
+    },
+    "sg90-vision-synchronized.gif": {
+      "frames": 180,
+      "duration_ms": 12000,
+      "dimensions": [
+        1320,
+        495
+      ]
+    }
+  },
+  "step_geometry": {
+    "sg90-camera-arm.step": {
+      "valid": true,
+      "solids": 56
+    },
+    "sg90-vision-cell.step": {
+      "valid": true,
+      "solids": 94
+    }
+  },
+  "sampled_clearance_frames": 114,
+  "environment_intersections": [],
+  "grasp_transform_max_error": 4.263256414560601e-14,
+  "release_pose_continuous": true,
+  "red_part_in_destination": true,
+  "vision_selected_slot": 1,
+  "camera_rigidly_attached": true,
+  "physical_tested": false,
+  "scope": "CAD against decks, distractors and work surface. Does not certify self-collision, servo travel, friction, load, wiring, mount fit or hardware behavior."
+}

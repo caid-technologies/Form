@@ -9,6 +9,42 @@ with one fixed jaw and one servo-driven jaw. The arm has 55 mm and 45 mm links.
 [STEP assembly (ZIP)](sg90-robot-arm.step.zip) · [Still preview](sg90-robot-arm.png) ·
 [Build script](build.py) · [Library contract](../../docs/component-asset-library.md)
 
+## Camera and vision-guided sorting scene
+
+The follow-up adds a generic miniature camera above the fingertips, adjusted
+side-pinching jaws, three colored sample parts, and a destination tray. A detector
+segments the **rendered RGB image**, selects the red part's calibrated fixture
+slot, and passes that slot's position into the inverse-kinematics trajectory.
+The arm approaches, closes, lifts, transfers, lowers, releases, and retracts.
+The blue and yellow parts stay in the source fixture.
+
+![Synchronized arm and wrist-camera views](sg90-vision-review.gif)
+
+The two full-size deliverables share 180 frames at 15 fps (12 seconds). The
+camera POV comes from the same scene with a fixed wrist-to-camera transform and
+68-degree vertical field of view. Its detection boxes are measured from each
+RGB frame, not projected from hidden object coordinates. The clip is a CAD
+simulation with scripted IK motion, not footage from a real robot or proof of
+physical grasping. The camera is a generic envelope, not a selected product.
+
+[Scene source](vision_scene.py) · [Camera arm and cell STEP ZIP](sg90-vision-cad.zip) ·
+[Verification summary](vision-verification.json)
+
+After creating the original asset output above, reproduce this scene with:
+
+```sh
+python examples/sg90-library-arm/vision_scene.py \
+  --servo-step ./sg90-arm-output/reused-servo.step \
+  --output ./sg90-vision-output
+```
+
+This also needs NumPy, SciPy, and Pillow. Rendering requires a graphics session
+or an EGL-capable VTK runtime. Add `--preview` for eight inspection frames.
+The new camera and bracket add distal mass; the original no-camera load estimate
+below does not establish a payload rating for this variant. Exact electronics,
+mounting, wiring, servo travel, and full mechanical validation remain physical
+integration work.
+
 ## What is verified
 
 The assembly is real OCCT STEP geometry; the preview animates its joint hierarchy.
