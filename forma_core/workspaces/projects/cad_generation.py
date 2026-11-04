@@ -295,13 +295,13 @@ for item in PLACEMENTS:
         item["ref_des"] + " component envelope",
     )
     PARTS[item["ref_des"]] = component
-    if item["ref_des"] not in MOVING_REFS:
-        model = model.union(component, name=item["ref_des"] + " placed component")
 
+# Placed components are independent assembly bodies. Fusing disjoint parts
+# would either fail or erase their physical identity; motion is optional.
 FORMA_EXPORT_SHAPE_IDS = [model.shape_id] + [
-    PARTS[ref_des].shape_id
-    for ref_des in sorted(MOVING_REFS)
-    if ref_des in PARTS and PARTS[ref_des].shape_id
+    part.shape_id
+    for ref_des, part in sorted(PARTS.items())
+    if part.shape_id
 ]
 
 context = get_default_context()
@@ -343,6 +343,7 @@ def _adapter_path() -> Path:
     candidates = [Path(configured)] if configured else []
     candidates.extend(
         (
+            Path(__file__).resolve().parents[2] / "_resources" / "cad.py",
             Path(__file__).resolve().parents[3] / CAD_ADAPTER_RELATIVE_PATH,
             Path(__file__).resolve().parents[4] / CAD_ADAPTER_RELATIVE_PATH,
             Path.cwd() / CAD_ADAPTER_RELATIVE_PATH,
@@ -827,6 +828,18 @@ def ensure_native_cad_model(
             "exports": portable_exports,
             "meshes": [mesh],
         }
+        # Store the exact source and tree beside geometry. Canonical revisions
+        # must remain inspectable after a worker's temporary workspace is gone.
+        project.cad_model["source_artifacts"] = {
+            role: {"path": str(path), "filename": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                   "media_type": media_type, "size_bytes": path.stat().st_size}
+            for role, path, media_type in (
+                ("model_source", model_path, "text/x-python"),
+                ("feature_tree", tree_path, "application/json"),
+            )
+        }
+        from forma_core.workspaces.projects.inspection import cad_intent_digest
+        project.cad_model["intent_sha256"] = cad_intent_digest(project)
         if progressive:
             project.cad_model.update({
                 "component_artifacts": component_artifacts,
@@ -837,6 +850,8 @@ def ensure_native_cad_model(
 
             storage = ProjectArtifactStorage()
             storage.put(project_id, checksum, step_bytes, "model/step")
+            for descriptor in project.cad_model["source_artifacts"].values():
+                storage.put(project_id, descriptor["sha256"], Path(descriptor["path"]).read_bytes(), descriptor["media_type"])
             for export_format, export_bytes in (
                 ("stl", stl_bytes),
                 ("3mf", three_mf_bytes),
@@ -978,10 +993,33 @@ def mesh_project_artifact(project: HardwareIntermediateRepresentation, project_i
     )
 
 
+def cad_project_artifacts(project: HardwareIntermediateRepresentation, project_id: str) -> list[ProjectArtifact]:
+    """Canonical references for the whole native design, including editable source."""
+    cad = project.cad_model if isinstance(project.cad_model, dict) else {}
+    primary = cad_project_artifact(project, project_id)
+    if primary is None:
+        return []
+    records = [primary]
+    descriptors = {**cad.get("source_artifacts", {}), **cad.get("exports", {})}
+    for role, descriptor in sorted(descriptors.items()):
+        if not isinstance(descriptor, dict) or not descriptor.get("sha256"):
+            continue
+        filename = Path(descriptor.get("path") or descriptor.get("filename") or role).name
+        records.append(ProjectArtifact(
+            artifact_id=f"native-cad-{role}", kind="cad.source" if role in {"model_source", "feature_tree"} else "cad.export",
+            uri=f"forma://projects/{project_id}/cad/{filename}", media_type=descriptor.get("media_type"),
+            checksum="sha256:" + descriptor["sha256"],
+            metadata={"cad_role": role, "original_path": descriptor.get("path"), "filename": filename,
+                      "size_bytes": descriptor.get("size_bytes", descriptor.get("bytes"))},
+        ))
+    return records
+
+
 __all__ = [
     "CAD_ADAPTER_NAME",
     "CadGenerationError",
     "cad_project_artifact",
+    "cad_project_artifacts",
     "ensure_native_cad_model",
     "mesh_project_artifact",
     "resume_native_cad_after_visual_decision",

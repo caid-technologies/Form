@@ -1,0 +1,62 @@
+{
+  "$id": "urn:caid:forma:engineering-review:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority": {
+      "const": "declaration_not_authenticated",
+      "default": "declaration_not_authenticated",
+      "title": "Authority",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "approved",
+        "rejected"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "format": {
+      "const": "forma.engineering-review",
+      "default": "forma.engineering-review",
+      "title": "Format",
+      "type": "string"
+    },
+    "manifest_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Sha256",
+      "type": "string"
+    },
+    "note": {
+      "default": "",
+      "maxLength": 4000,
+      "title": "Note",
+      "type": "string"
+    },
+    "recorded_at": {
+      "title": "Recorded At",
+      "type": "string"
+    },
+    "reviewer": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Reviewer",
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "manifest_sha256",
+    "decision",
+    "reviewer",
+    "recorded_at"
+  ],
+  "title": "ReviewDeclaration",
+  "type": "object"
+}

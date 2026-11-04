@@ -204,7 +204,8 @@ class CadGenerationTests(unittest.TestCase):
         self.assertIn('"joint_id": intent["motion_id"]', source)
         self.assertIn('"forma_target_ref": intent["target_ref"]', source)
         self.assertIn('MOVING_REFS = {intent["target_ref"] for intent in MOTION_INTENTS}', source)
-        self.assertIn('if item["ref_des"] not in MOVING_REFS:', source)
+        self.assertNotIn('model.union(component', source)
+        self.assertIn('for ref_des, part in sorted(PARTS.items())', source)
         self.assertIn("FORMA_EXPORT_SHAPE_IDS", source)
 
     def test_generation_persists_opencad_kinematics_payload(self) -> None:
@@ -409,10 +410,16 @@ class CadGenerationTests(unittest.TestCase):
                     required=True,
                     authoring_agent="OpenCAD stress fixture",
                 ))
+                import cadquery as cq
+                solids = cq.importers.importStep(project.cad_model["path"]).solids().vals()
+                expected_components = [item for item in project.mechanical.component_placements
+                    if "enclosure" not in (item.category + " " + item.label).lower()]
+                self.assertEqual(1 + len(expected_components), len(solids))
+                self.assertTrue(all(solid.isValid() and solid.Volume() > 0 for solid in solids))
 
         self.assertEqual("forma-opencad", project.cad_model["adapter"])
-        self.assertGreater(project.cad_model["bytes"], 500_000)
-        self.assertGreater(len(project.cad_model["meshes"][0]["faces"]), 900)
+        self.assertGreater(project.cad_model["bytes"], 0)
+        self.assertTrue(project.cad_model["meshes"][0]["faces"])
 
 
 if __name__ == "__main__":

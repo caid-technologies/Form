@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import unittest
+from types import SimpleNamespace
 from itertools import product
 from unittest.mock import patch
 from uuid import uuid4
@@ -107,6 +109,45 @@ class OpenCodeMcpModelTests(unittest.TestCase):
 
 
 class OpenCodeMcpHttpTests(unittest.TestCase):
+    def test_inspection_reads_exact_scoped_revision_and_checks_authorized_bytes(self) -> None:
+        from forma_core.workspaces.projects.state import ProjectArtifact
+        content = b"saved engineering evidence"
+        digest = hashlib.sha256(content).hexdigest()
+        revision = SimpleNamespace(revision_id="revision-1", state=HardwareIntermediateRepresentation(), artifacts=[
+            ProjectArtifact(artifact_id="evidence", kind="file", uri="forma://private/artifact",
+                            media_type="text/plain", checksum="sha256:" + digest)])
+        with patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=revision) as get_revision, patch(
+            "forma_core.persistence.project_artifacts.ProjectArtifactStorage.get",
+            return_value=SimpleNamespace(content=content),
+        ) as get_bytes:
+            response = self.client.post("/api/opencode/mcp", json={
+                "jsonrpc": "2.0", "id": "inspect", "method": "tools/call",
+                "params": {"name": "forma.opencode.inspect_project", "arguments": {}},
+            })
+        self.assertEqual(200, response.status_code, response.text)
+        result = response.json()["result"]["structuredContent"]
+        self.assertTrue(result["is_valid"])
+        self.assertEqual("pending", result["human_review"]["status"])
+        get_revision.assert_called_once_with(self.capability.project_id, "user")
+        get_bytes.assert_called_once_with(self.capability.project_id, digest, "text/plain")
+
+    def test_inspection_rejects_arbitrary_host_file_arguments(self) -> None:
+        response = self.client.post("/api/opencode/mcp", json={
+            "jsonrpc": "2.0", "id": "inspect", "method": "tools/call",
+            "params": {"name": "forma.opencode.inspect_project", "arguments": {"path": "/private/file"}},
+        })
+        self.assertEqual(422, response.status_code)
+
+    def test_contract_discovery_exposes_strict_portable_integrity_schema(self) -> None:
+        response = self.client.post("/api/opencode/mcp", json={
+            "jsonrpc": "2.0", "id": "contract", "method": "tools/call",
+            "params": {"name": "forma.opencode.project_contract", "arguments": {}},
+        })
+        self.assertEqual(200, response.status_code)
+        result = response.json()["result"]["structuredContent"]
+        self.assertEqual(1, result["manifest"]["properties"]["version"]["const"])
+        self.assertIn("sha256", result["portable_manifest"]["$defs"]["PortableArtifactReference"]["required"])
+
     def test_nested_authoring_errors_are_actionable_and_do_not_echo_secrets(self) -> None:
         cases = (
             ({"overview": {"title": "SECRET_CANARY"}}, ["project_ir", "overview", "description"]),
@@ -378,7 +419,7 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
         with patch("apps.api.opencode_mcp._persist_mcp_compile") as persist, \
              patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
              patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=None), \
-             patch("apps.api.opencode_mcp.ensure_native_cad_model"):
+             patch("forma_core.workspaces.projects.cad_generation.ensure_native_cad_model"):
             response = self.client.post("/api/opencode/mcp", json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
                 "params": {"name": "forma.opencode.create_project", "arguments": {}},
@@ -395,7 +436,7 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
         with patch("apps.api.opencode_mcp._persist_mcp_compile") as persist, \
              patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
              patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=None), \
-             patch("apps.api.opencode_mcp.ensure_native_cad_model"):
+             patch("forma_core.workspaces.projects.cad_generation.ensure_native_cad_model"):
             response = self.client.post("/api/opencode/mcp", json={
                 "jsonrpc": "2.0", "id": 1, "method": "tools/call",
                 "params": {"name": "forma.opencode.compile_project", "arguments": {"project_ir": wired_project().model_dump(mode="json")}},
@@ -428,7 +469,7 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
                  patch("apps.api.opencode_mcp._persist_mcp_compile") as persist, \
                  patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
                  patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=None), \
-                 patch("apps.api.opencode_mcp.ensure_native_cad_model"):
+                 patch("forma_core.workspaces.projects.cad_generation.ensure_native_cad_model"):
                 response = self.client.post("/api/opencode/mcp", json={
                     "jsonrpc": "2.0", "id": 1, "method": "tools/call",
                     "params": {"name": f"forma.opencode.{operation}_project", "arguments": {"project_ir": json.dumps(project_ir)}},
@@ -469,7 +510,7 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
                  patch("apps.api.opencode_mcp._persist_mcp_compile") as persist, \
                  patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
                  patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=None), \
-                 patch("apps.api.opencode_mcp.ensure_native_cad_model"):
+                 patch("forma_core.workspaces.projects.cad_generation.ensure_native_cad_model"):
                 response = self.client.post("/api/opencode/mcp", json={
                     "jsonrpc": "2.0", "id": 1, "method": "tools/call",
                     "params": {"name": f"forma.opencode.{operation}_project", "arguments": {"project_ir": json.dumps(project_ir) if encoded else project_ir}},

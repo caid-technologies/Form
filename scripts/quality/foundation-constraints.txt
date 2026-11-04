@@ -1,0 +1,11 @@
+# Supported native foundation test environment (Python 3.12).
+# Intel macOS needs binary-compatible Numba/LLVM; avoid unsupported source builds.
+numpy==2.2.6
+numba==0.61.2
+llvmlite==0.44.0
+cryptography==46.0.7
+cadquery==2.8.0
+cadquery-ocp==7.9.3.1.1
+pydantic==2.14.2
+# OpenCAD's native shutdown constraint; keep its upstream fix gate.
+casadi==3.7.2 ; sys_platform == "win32"

@@ -5,9 +5,9 @@ The Forma hardware skill manages OpenCAD for CAD-capable workflows. The base
 
 ## Supported runtime
 
-- OpenCAD: `0.2.4`
+- OpenCAD: `0.2.5`
 - Required extra: `occt`
-- Managed source: OpenCAD gear motion commit `1c417752eb42d29b951784e80f65ac79c3fb6e0e`
+- Managed source: Open-CAD foundation commit `d2fd81c2309eb400224203be1b9c91298f09aa64`
 - Python: `3.11+` for the Forma skill environment
 
 The OCCT extra is required for real STEP and STL exchange files. The analytic
@@ -22,7 +22,7 @@ workflow:
 python <skill-directory>/scripts/cad.py setup
 ```
 
-Setup first reuses an installed OpenCAD `0.2.4` runtime only when native OCCT, rigid kinematics, spur gears and gear coupling are available. Otherwise it installs the pinned OpenCAD gear-motion commit and
+Setup first reuses an installed OpenCAD `0.2.5` runtime only when native OCCT, rigid kinematics, spur gears and gear coupling are available. Otherwise it installs the pinned Open-CAD foundation commit and
 verifies the backend before returning. To verify without changing the active
 Python environment:
 
@@ -51,11 +51,11 @@ with the artifact so the result can be rebuilt.
 ## OpenCAD source overrides
 
 An existing compatible installation is always preferred. For a private wheel,
-mirror, or local package that still reports the supported `0.2.4` version, set
+mirror, or local package that still reports the supported `0.2.5` version, set
 `FORMA_OPENCAD_REQUIREMENT` for setup and build:
 
 ```bash
-FORMA_OPENCAD_REQUIREMENT='opencad[occt] @ file:///path/to/opencad-0.2.4-py3-none-any.whl' python <skill-directory>/scripts/cad.py setup
+FORMA_OPENCAD_REQUIREMENT='opencad[occt] @ file:///path/to/opencad-0.2.5-py3-none-any.whl' python <skill-directory>/scripts/cad.py setup
 ```
 
-The override changes only the package source/installer requirement. The adapter still rejects any runtime whose reported OpenCAD version is not `0.2.4`, whose OCCT backend cannot be constructed, or which does not expose the rigid kinematics module.
+The override changes only the package source/installer requirement. The adapter still rejects any runtime whose reported OpenCAD version is not `0.2.5`, whose OCCT backend cannot be constructed, or which does not expose the rigid kinematics module.

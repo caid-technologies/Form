@@ -178,7 +178,7 @@ class StaleSessionTests(unittest.TestCase):
         capability = verify_capability(token, scope="mcp")
         with patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=None), patch(
             "apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None,
-        ), patch("apps.api.opencode_mcp.ensure_native_cad_model", side_effect=lambda *args, **kwargs: self.advance(300)), patch(
+        ), patch("forma_core.workspaces.projects.cad_generation.ensure_native_cad_model", side_effect=lambda *args, **kwargs: self.advance(300)), patch(
             "apps.api.opencode_mcp._persist_mcp_compile",
         ) as persist:
             with self.assertRaises(PermissionError):

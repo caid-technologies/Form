@@ -268,7 +268,8 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         class RecordingDispatcher:
             calls = 0
 
-            def start(self, current_project_id, owner, current_conversation_id):
+            def start(self, current_project_id, owner, current_conversation_id, *, generation_mode="regular"):
+                self.generation_mode = generation_mode
                 self.calls += 1
                 outcome = database.transition_project_workflow(
                     current_project_id,
@@ -304,6 +305,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual("build-plan-test", started.json()["build_execution"]["plan_id"])
         self.assertIn("started the design", started.json()["assistant_message"])
         self.assertEqual(1, dispatcher.calls)
+        self.assertEqual("regular", dispatcher.generation_mode)
 
     def test_production_dispatcher_freezes_build_creates_plan_and_schedules_execution(self) -> None:
         project_id = str(uuid.uuid4())

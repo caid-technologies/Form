@@ -46,3 +46,6 @@ tmp/
 *.sln
 *.swp
 .vercel
+*.egg-info/
+build/
+dist/

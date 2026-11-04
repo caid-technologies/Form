@@ -2474,9 +2474,6 @@ async def _call_mcp_tool(
 ) -> Dict[str, Any]:
     if tool_name == "forma.compile_project":
         project = HardwareIntermediateRepresentation.model_validate(arguments.get("project_ir"))
-        issues = validate_circuit(project.components, project.nets, project.requirements)
-        project.validation = build_validation_summary(issues)
-        project.is_valid = not project.validation.critical
         requested_project_id = arguments.get("project_id") or (project.assembly_metadata or {}).get("project_id")
         try:
             compile_project_id = (
@@ -2486,10 +2483,11 @@ async def _call_mcp_tool(
             )
         except (TypeError, ValueError, AttributeError) as exc:
             raise ValueError("project_id must be a UUID when supplied.") from exc
-        ensure_native_cad_model(
+        from forma_core.workspaces.projects.inspection import compile_project
+        project = compile_project(
             project,
             project_id=compile_project_id,
-            required=False,
+            required_cad=False,
             authoring_agent=arguments.get("authoring_agent"),
             workflow="default",
         )

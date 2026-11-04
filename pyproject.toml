@@ -36,9 +36,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/caid-technologies/Forma-OSS"
-Repository = "https://github.com/caid-technologies/Forma-OSS"
-Documentation = "https://github.com/caid-technologies/Forma-OSS#readme"
+Homepage = "https://github.com/caid-technologies/Form"
+Repository = "https://github.com/caid-technologies/Form"
+Documentation = "https://github.com/caid-technologies/Form/blob/main/docs/README.md"
 
 [project.scripts]
 forma-core = "forma_core.cli.main:main"

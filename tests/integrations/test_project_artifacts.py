@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 from forma_core.persistence.project_artifacts import (
     ProjectArtifactStorage,
@@ -14,6 +16,75 @@ from forma_core.workspaces.projects.manifest import validate_artifact_references
 
 
 class ProjectArtifactStorageTests(unittest.TestCase):
+    def local_storage(self, directory: str) -> ProjectArtifactStorage:
+        return ProjectArtifactStorage({"enabled": True, "backend": "local", "directory": Path(directory),
+                                       "bucket": "unused", "max_bytes": 1024})
+
+    def test_independent_writers_publish_one_complete_object(self) -> None:
+        content = b"the same immutable bytes"
+        sha256 = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            def write(_: int) -> bytes:
+                storage = self.local_storage(directory)
+                storage.put("project", sha256, content, "application/octet-stream")
+                return storage.get("project", sha256, "application/octet-stream").content
+
+            with ThreadPoolExecutor(max_workers=8) as writers:
+                self.assertEqual([content] * 32, list(writers.map(write, range(32))))
+            self.assertEqual(1, len([p for p in Path(directory).rglob("*") if p.is_file()]))
+
+    def test_windows_denial_after_competing_publish_is_successful(self) -> None:
+        content = b"complete winner"
+        sha256 = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            storage = self.local_storage(directory)
+            target = Path(directory) / project_artifact_storage_key("project", sha256)
+
+            def competing_publish(temporary: Path, destination: Path) -> None:
+                # Simulate Windows refusing replacement because the winner is
+                # being read. Its content already satisfies this write.
+                destination.write_bytes(content)
+                raise PermissionError("target opened by another reader")
+
+            with patch.object(Path, "replace", competing_publish), patch(
+                "forma_core.persistence.project_artifacts.time.sleep"
+            ):
+                storage.put("project", sha256, content, "application/octet-stream")
+            self.assertEqual(content, target.read_bytes())
+            self.assertEqual([target], [p for p in Path(directory).rglob("*") if p.is_file()])
+
+    def test_busy_corrupt_target_fails_without_success_or_temporary_files(self) -> None:
+        content = b"expected immutable bytes"
+        sha256 = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            storage = self.local_storage(directory)
+            target = Path(directory) / project_artifact_storage_key("project", sha256)
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b"corrupt")
+            with patch.object(Path, "replace", side_effect=PermissionError("busy")) as replace, patch(
+                "forma_core.persistence.project_artifacts.time.sleep"
+            ):
+                with self.assertRaisesRegex(ProjectArtifactStorageError, "busy"):
+                    storage.put("project", sha256, content, "application/octet-stream")
+            self.assertEqual(8, replace.call_count)
+            self.assertEqual(b"corrupt", target.read_bytes())
+            self.assertEqual([target], [p for p in Path(directory).rglob("*") if p.is_file()])
+            with self.assertRaisesRegex(ProjectArtifactStorageError, "SHA-256"):
+                storage.get("project", sha256, "application/octet-stream")
+
+    def test_download_checks_integrity_for_remote_storage(self) -> None:
+        content = b"private expected artifact"
+        sha256 = hashlib.sha256(content).hexdigest()
+        storage = ProjectArtifactStorage({"enabled": True, "backend": "supabase", "bucket": "unused", "max_bytes": 1024})
+
+        class CorruptBucket:
+            def download(self, key: str) -> bytes:
+                return b"different bytes"
+
+        storage._supabase_bucket = lambda: CorruptBucket()  # type: ignore[method-assign]
+        with self.assertRaisesRegex(ProjectArtifactStorageError, "SHA-256"):
+            storage.get("project", sha256, "application/octet-stream")
+
     def test_local_storage_round_trip_is_project_scoped(self) -> None:
         content = b"private project artifact"
         sha256 = hashlib.sha256(content).hexdigest()

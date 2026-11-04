@@ -371,24 +371,17 @@ def build_project(
 def status_project(path: str | Path | None = None) -> dict[str, Any]:
     root = project_root(path)
     manifest = read_project(root)
-    try:
-        from forma_core.validation import build_validation_summary, validate_circuit
-        from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
-
-        ir = HardwareIntermediateRepresentation.model_validate(manifest.project_ir)
-        summary = build_validation_summary(validate_circuit(ir.components, ir.nets, ir.requirements))
-        valid = not summary.critical
-        validation = summary.model_dump(mode="json")
-    except Exception as exc:
-        valid = False
-        validation = {"critical": [str(exc)], "warning": [], "info": []}
+    from forma_core.workspaces.projects.inspection import inspect_project
+    from forma_core.workspaces.projects.portable import local_artifact_reader
+    inspected = inspect_project(manifest, read_artifact=local_artifact_reader(root))
     linkage = load_linkage(root)
     return {
         "project_id": manifest.project_id,
         "title": manifest.title,
         "path": str(root / PROJECT_FILENAME),
-        "valid": valid,
-        "validation": validation,
+        "valid": inspected.is_valid,
+        "validation": inspected.validation,
+        "inspection": inspected.model_dump(mode="json"),
         "remote": linkage.get("remote"),
         "remote_project_id": linkage.get("remote_project_id") or linkage.get("project_id") if linkage.get("remote") else None,
         "revision_id": linkage.get("revision_id"),

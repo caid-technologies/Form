@@ -429,6 +429,7 @@ class ProjectStateService:
         source_job_id: str,
         design_brief_id: str | UUID | None = None,
         design_brief_version: int | None = None,
+        expected_parent_revision: int | None = None,
     ) -> ProjectRevisionOutcome:
         """Append one immutable revision to an existing canonical project."""
 
@@ -451,6 +452,8 @@ class ProjectStateService:
             )
 
         parent = self.get_latest(project, owner)
+        if expected_parent_revision is not None and parent.revision != expected_parent_revision:
+            raise ProjectStateError("project_revision_conflict", "Project changed; read the latest revision and retry.")
 
         brief_id = (
             _canonical_uuid(design_brief_id, "design_brief_id")

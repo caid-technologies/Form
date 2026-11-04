@@ -12,6 +12,7 @@ CONCERNS = {
     "integrations",
     "jobs",
     "observability",
+    "opencode",
     "persistence",
     "projects",
     "providers",

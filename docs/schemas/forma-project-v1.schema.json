@@ -1,0 +1,2094 @@
+{
+  "$defs": {
+    "AssemblyStep": {
+      "properties": {
+        "affected_components": {
+          "description": "Reference designators of components handled in this step",
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Components",
+          "type": "array"
+        },
+        "danger_flag": {
+          "default": false,
+          "description": "True if step carries electric, thermal, or physical risk",
+          "title": "Danger Flag",
+          "type": "boolean"
+        },
+        "danger_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Warning warning note for this step",
+          "title": "Danger Message"
+        },
+        "description": {
+          "description": "Step-by-step assembly description",
+          "title": "Description",
+          "type": "string"
+        },
+        "step_num": {
+          "description": "Index order of this assembly instruction",
+          "title": "Step Num",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Short title of the step",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step_num",
+        "title",
+        "description"
+      ],
+      "title": "AssemblyStep",
+      "type": "object"
+    },
+    "BOMLineItem": {
+      "description": "Deterministic procurement aggregation over physical component instances.",
+      "properties": {
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "extended_price": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Extended Price",
+          "type": "number"
+        },
+        "instance_refs": {
+          "description": "Physical instances aggregated into this row",
+          "items": {
+            "type": "string"
+          },
+          "title": "Instance Refs",
+          "type": "array"
+        },
+        "line_id": {
+          "description": "Stable project-local BOM row ID",
+          "title": "Line Id",
+          "type": "string"
+        },
+        "manufacturer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Manufacturer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "part_definition_id": {
+          "description": "Referenced shared part definition",
+          "title": "Part Definition Id",
+          "type": "string"
+        },
+        "part_number": {
+          "title": "Part Number",
+          "type": "string"
+        },
+        "quantity": {
+          "description": "Number of referenced physical instances",
+          "minimum": 1,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Combined project roles represented by this BOM row",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "sourcing_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourcing Url"
+        },
+        "unit_price": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Unit Price",
+          "type": "number"
+        }
+      },
+      "required": [
+        "line_id",
+        "part_definition_id",
+        "quantity",
+        "part_number",
+        "name",
+        "category"
+      ],
+      "title": "BOMLineItem",
+      "type": "object"
+    },
+    "BusConnection": {
+      "properties": {
+        "bus_id": {
+          "description": "Unique ID for the digital communication bus, e.g., 'BUS_I2C_1'",
+          "title": "Bus Id",
+          "type": "string"
+        },
+        "bus_type": {
+          "description": "Bus type: I2C, SPI, UART, CAN",
+          "title": "Bus Type",
+          "type": "string"
+        },
+        "clock_frequency_hz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Operating bus speed if applicable",
+          "title": "Clock Frequency Hz"
+        },
+        "nets": {
+          "description": "Electrical net IDs associated with this bus",
+          "items": {
+            "type": "string"
+          },
+          "title": "Nets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "bus_id",
+        "bus_type"
+      ],
+      "title": "BusConnection",
+      "type": "object"
+    },
+    "CadDimensions": {
+      "additionalProperties": false,
+      "properties": {
+        "x_mm": {
+          "exclusiveMinimum": 0,
+          "maximum": 10000,
+          "title": "X Mm",
+          "type": "number"
+        },
+        "y_mm": {
+          "exclusiveMinimum": 0,
+          "maximum": 10000,
+          "title": "Y Mm",
+          "type": "number"
+        },
+        "z_mm": {
+          "exclusiveMinimum": 0,
+          "maximum": 10000,
+          "title": "Z Mm",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x_mm",
+        "y_mm",
+        "z_mm"
+      ],
+      "title": "CadDimensions",
+      "type": "object"
+    },
+    "CadOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "axis_labels": {
+          "default": false,
+          "description": "Engrave X, Y, Z into the positive faces of an added box, preserving its outside dimensions.",
+          "title": "Axis Labels",
+          "type": "boolean"
+        },
+        "center": {
+          "$ref": "#/$defs/CadPosition"
+        },
+        "operation": {
+          "default": "add",
+          "enum": [
+            "add",
+            "cut"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "shape": {
+          "enum": [
+            "box",
+            "cylinder"
+          ],
+          "title": "Shape",
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/$defs/CadDimensions",
+          "description": "Exact solid size in mm. For a Z-axis cylinder x and y are equal diameters; z is height."
+        }
+      },
+      "required": [
+        "shape",
+        "size"
+      ],
+      "title": "CadOperation",
+      "type": "object"
+    },
+    "CadPosition": {
+      "additionalProperties": false,
+      "properties": {
+        "x_mm": {
+          "default": 0,
+          "maximum": 10000,
+          "minimum": -10000,
+          "title": "X Mm",
+          "type": "number"
+        },
+        "y_mm": {
+          "default": 0,
+          "maximum": 10000,
+          "minimum": -10000,
+          "title": "Y Mm",
+          "type": "number"
+        },
+        "z_mm": {
+          "default": 0,
+          "maximum": 10000,
+          "minimum": -10000,
+          "title": "Z Mm",
+          "type": "number"
+        }
+      },
+      "title": "CadPosition",
+      "type": "object"
+    },
+    "ComponentInstance": {
+      "description": "One independently addressable physical occurrence in a project.\n\nThe excluded identity fields keep Python callers and legacy records readable\nduring the 0.1 -> 0.2 transition. New serialized IR stores those values once\nin ``part_definitions`` and emits only the definition reference here.",
+      "properties": {
+        "category": {
+          "default": "",
+          "title": "Category",
+          "type": "string"
+        },
+        "configuration": {
+          "additionalProperties": true,
+          "description": "Instance-specific configuration only",
+          "title": "Configuration",
+          "type": "object"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        },
+        "part_definition_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID of the shared PartDefinition",
+          "title": "Part Definition Id"
+        },
+        "part_number": {
+          "default": "",
+          "title": "Part Number",
+          "type": "string"
+        },
+        "pins": {
+          "items": {
+            "$ref": "#/$defs/PinDefinition"
+          },
+          "title": "Pins",
+          "type": "array"
+        },
+        "rationale": {
+          "description": "Why this component was selected for this project",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "ref_des": {
+          "description": "Reference designator, e.g., 'U1', 'R1', 'SEN1'",
+          "title": "Ref Des",
+          "type": "string"
+        },
+        "sourcing_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sourcing Url"
+        },
+        "unit_price": {
+          "default": 0.0,
+          "title": "Unit Price",
+          "type": "number"
+        }
+      },
+      "required": [
+        "ref_des",
+        "rationale"
+      ],
+      "title": "ComponentInstance",
+      "type": "object"
+    },
+    "ConnectionNet": {
+      "properties": {
+        "name": {
+          "description": "Friendly net name, e.g., '3.3V Power Rail', 'I2C Data'",
+          "title": "Name",
+          "type": "string"
+        },
+        "net_id": {
+          "description": "Unique ID for the electrical net, e.g., 'NET_VCC', 'NET_I2C_SDA'",
+          "title": "Net Id",
+          "type": "string"
+        },
+        "net_type": {
+          "description": "Net type: Power, Ground, Analog, Digital, I2C, SPI, UART, PWM",
+          "title": "Net Type",
+          "type": "string"
+        },
+        "pins": {
+          "description": "All component pins tied to this net",
+          "items": {
+            "$ref": "#/$defs/PinReference"
+          },
+          "title": "Pins",
+          "type": "array"
+        },
+        "voltage": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Expected voltage of this net, e.g., 3.3",
+          "title": "Voltage"
+        }
+      },
+      "required": [
+        "net_id",
+        "name",
+        "net_type"
+      ],
+      "title": "ConnectionNet",
+      "type": "object"
+    },
+    "FunctionalRequirements": {
+      "properties": {
+        "missing_info": {
+          "description": "Clarifying questions or unknown requirements",
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Info",
+          "type": "array"
+        },
+        "operating_voltage": {
+          "default": 3.3,
+          "description": "Main operating system voltage, typically 3.3 or 5.0",
+          "title": "Operating Voltage",
+          "type": "number"
+        },
+        "physical_constraints": {
+          "description": "Size, weight, or environmental constraints",
+          "items": {
+            "type": "string"
+          },
+          "title": "Physical Constraints",
+          "type": "array"
+        },
+        "power_needs": {
+          "description": "Power supply requirements, e.g., '5V USB', '3.7V LiPo Battery'",
+          "title": "Power Needs",
+          "type": "string"
+        },
+        "requirements": {
+          "description": "List of primary functional requirements",
+          "items": {
+            "type": "string"
+          },
+          "title": "Requirements",
+          "type": "array"
+        },
+        "safety_notes": {
+          "description": "Safety and handling advisories",
+          "items": {
+            "type": "string"
+          },
+          "title": "Safety Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "power_needs"
+      ],
+      "title": "FunctionalRequirements",
+      "type": "object"
+    },
+    "MechanicalMotionIntent": {
+      "properties": {
+        "axis": {
+          "default": "Z",
+          "description": "Project-space motion axis",
+          "enum": [
+            "X",
+            "Y",
+            "Z"
+          ],
+          "title": "Axis",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable name for the motion preview",
+          "title": "Label"
+        },
+        "max_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum angular travel for revolute/compliant motion",
+          "title": "Max Deg"
+        },
+        "max_mm": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum linear travel for prismatic motion",
+          "title": "Max Mm"
+        },
+        "min_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum angular travel for revolute/compliant motion",
+          "title": "Min Deg"
+        },
+        "min_mm": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum linear travel for prismatic motion",
+          "title": "Min Mm"
+        },
+        "motion_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stable project-local identifier for this motion",
+          "title": "Motion Id"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Motion intent, stops, clearances, or preview limitations",
+          "title": "Notes"
+        },
+        "parent_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional reference designator of the stationary parent",
+          "title": "Parent Ref"
+        },
+        "pivot_mm": {
+          "description": "Project-space pivot [x, y, z] in millimeters",
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Pivot Mm",
+          "type": "array"
+        },
+        "target_ref": {
+          "description": "Reference designator of the moving placement",
+          "title": "Target Ref",
+          "type": "string"
+        },
+        "type": {
+          "description": "Authoring intent. Rigid revolute/prismatic intents are resolved and evaluated by OpenCAD; compliant intent is reserved for future deformation preview.",
+          "enum": [
+            "revolute",
+            "prismatic",
+            "compliant"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "target_ref"
+      ],
+      "title": "MechanicalMotionIntent",
+      "type": "object"
+    },
+    "MechanicalNotes": {
+      "properties": {
+        "cad_operations": {
+          "description": "Explicit solid CAD in millimeters, applied in order; first operation must add. Use for standalone solids (components/nets may be empty). An empty list retains the legacy enclosure generator.",
+          "items": {
+            "$ref": "#/$defs/CadOperation"
+          },
+          "maxItems": 32,
+          "title": "Cad Operations",
+          "type": "array"
+        },
+        "cad_sources": {
+          "description": "CAD, enclosure, and fabrication source records",
+          "items": {
+            "$ref": "#/$defs/MechanicalSource"
+          },
+          "title": "Cad Sources",
+          "type": "array"
+        },
+        "component_placements": {
+          "description": "Per-component 3D placements for live Three.js rendering",
+          "items": {
+            "$ref": "#/$defs/MechanicalPlacement"
+          },
+          "title": "Component Placements",
+          "type": "array"
+        },
+        "enclosure_type": {
+          "description": "Type of housing: 3D Printed, Off-the-shelf, Custom Acrylic, Waterproof, Acrylic laser cut",
+          "title": "Enclosure Type",
+          "type": "string"
+        },
+        "fabrication_cost_estimate_usd": {
+          "default": 0.0,
+          "description": "Estimated mechanical fabrication cost in USD, excluding electrical BOM",
+          "title": "Fabrication Cost Estimate Usd",
+          "type": "number"
+        },
+        "fabrication_details": {
+          "description": "Enclosure dimensions, material recommendations, or printing instructions",
+          "items": {
+            "type": "string"
+          },
+          "title": "Fabrication Details",
+          "type": "array"
+        },
+        "manufacturability_rating": {
+          "description": "Ease of manufacturing: Easy, Moderate, Challenging",
+          "title": "Manufacturability Rating",
+          "type": "string"
+        },
+        "mechanism_benchmark": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "monolithic_flexure_hinge": "#/$defs/MonolithicFlexureBenchmark",
+                  "print_in_place_hinge": "#/$defs/PrintInPlaceHingeBenchmark",
+                  "spur_gear_pair": "#/$defs/SpurGearPairBenchmark"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/PrintInPlaceHingeBenchmark"
+                },
+                {
+                  "$ref": "#/$defs/MonolithicFlexureBenchmark"
+                },
+                {
+                  "$ref": "#/$defs/SpurGearPairBenchmark"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bounded mechanism: print_in_place_hinge, monolithic_flexure_hinge, or spur_gear_pair. For two meshing gears use spur_gear_pair (defaults: 20/40 teeth, module 2 mm). CAD generation creates real gear bodies and synchronized OpenCAD poses.",
+          "title": "Mechanism Benchmark"
+        },
+        "motion_intents": {
+          "description": "Agent-authored motion intent resolved into OpenCAD kinematic joints during CAD generation",
+          "items": {
+            "$ref": "#/$defs/MechanicalMotionIntent"
+          },
+          "title": "Motion Intents",
+          "type": "array"
+        },
+        "mounting_guidance": {
+          "description": "Mounting and standoffs instructions",
+          "title": "Mounting Guidance",
+          "type": "string"
+        },
+        "physical_form": {
+          "default": "Unspecified",
+          "description": "Overall product shape and silhouette, such as curved handheld, cylindrical, wearable, folded, open-frame, or another explicitly requested form; do not assume a rectangular box",
+          "title": "Physical Form",
+          "type": "string"
+        },
+        "render_dimensions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MechanicalVector3"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overall live-render envelope dimensions in millimeters"
+        },
+        "spatial_relationships": {
+          "description": "Physical offsets and alignment relationships between placed components",
+          "items": {
+            "$ref": "#/$defs/MechanicalSpatialRelationship"
+          },
+          "title": "Spatial Relationships",
+          "type": "array"
+        }
+      },
+      "required": [
+        "enclosure_type",
+        "mounting_guidance",
+        "manufacturability_rating"
+      ],
+      "title": "MechanicalNotes",
+      "type": "object"
+    },
+    "MechanicalPlacement": {
+      "properties": {
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Component class or placement layer such as Microcontroller, Display, 3D Print, or Mechanical",
+          "title": "Category"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Display label for the placed component",
+          "title": "Label"
+        },
+        "layer": {
+          "default": "electrical",
+          "description": "Visibility layer: electrical, mechanism, print, enclosure, structural, or misc",
+          "title": "Layer",
+          "type": "string"
+        },
+        "mounting_face": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Face or surface used for mounting, such as front, back, floor, lid, left, or right",
+          "title": "Mounting Face"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Clearance, fastener, cable routing, or assembly notes for this placement",
+          "title": "Notes"
+        },
+        "orientation_deg": {
+          "$ref": "#/$defs/MechanicalRotation3",
+          "description": "Euler orientation in degrees around X, Y, and Z"
+        },
+        "position": {
+          "$ref": "#/$defs/MechanicalVector3",
+          "description": "Component center position in millimeters relative to the enclosure center"
+        },
+        "ref_des": {
+          "description": "Reference designator of the component this placement represents",
+          "title": "Ref Des",
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/$defs/MechanicalVector3",
+          "description": "Approximate component envelope size in millimeters"
+        }
+      },
+      "required": [
+        "ref_des",
+        "position",
+        "size"
+      ],
+      "title": "MechanicalPlacement",
+      "type": "object"
+    },
+    "MechanicalRotation3": {
+      "properties": {
+        "x_deg": {
+          "default": 0.0,
+          "description": "Rotation around the X axis in degrees",
+          "title": "X Deg",
+          "type": "number"
+        },
+        "y_deg": {
+          "default": 0.0,
+          "description": "Rotation around the Y axis in degrees",
+          "title": "Y Deg",
+          "type": "number"
+        },
+        "z_deg": {
+          "default": 0.0,
+          "description": "Rotation around the Z axis in degrees",
+          "title": "Z Deg",
+          "type": "number"
+        }
+      },
+      "title": "MechanicalRotation3",
+      "type": "object"
+    },
+    "MechanicalSource": {
+      "properties": {
+        "estimated_unit_price_usd": {
+          "default": 0.0,
+          "description": "Estimated CAD download, fabrication, or enclosure unit cost in USD",
+          "title": "Estimated Unit Price Usd",
+          "type": "number"
+        },
+        "file_formats": {
+          "description": "Known CAD/download formats such as STL, STEP, DXF, or Fusion 360",
+          "items": {
+            "type": "string"
+          },
+          "title": "File Formats",
+          "type": "array"
+        },
+        "license": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source license or commercial availability note",
+          "title": "License"
+        },
+        "name": {
+          "description": "Display name of the CAD, enclosure, or fabrication source",
+          "title": "Name",
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How this source should be adapted for the generated design",
+          "title": "Notes"
+        },
+        "source_type": {
+          "description": "Source class: Open STL, Paid STL, Vendor CAD, Reference CAD, or Fabrication Estimate",
+          "title": "Source Type",
+          "type": "string"
+        },
+        "url": {
+          "description": "Resolvable source URL for the CAD model, enclosure datasheet, or fabrication reference",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "source_type",
+        "url"
+      ],
+      "title": "MechanicalSource",
+      "type": "object"
+    },
+    "MechanicalSpatialRelationship": {
+      "properties": {
+        "axis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dominant axis for the relationship: X, Y, or Z",
+          "title": "Axis"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Additional placement or clearance rationale",
+          "title": "Notes"
+        },
+        "offset_mm": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Signed offset between components along the dominant axis",
+          "title": "Offset Mm"
+        },
+        "relation": {
+          "description": "Physical relationship such as centered-above, adjacent-to, mounted-on, aligned-with, or clearance-from",
+          "title": "Relation",
+          "type": "string"
+        },
+        "source_ref_des": {
+          "description": "Reference designator of the source component",
+          "title": "Source Ref Des",
+          "type": "string"
+        },
+        "target_ref_des": {
+          "description": "Reference designator of the target component",
+          "title": "Target Ref Des",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_ref_des",
+        "target_ref_des",
+        "relation"
+      ],
+      "title": "MechanicalSpatialRelationship",
+      "type": "object"
+    },
+    "MechanicalVector3": {
+      "properties": {
+        "x_mm": {
+          "description": "X-axis measurement in millimeters, where X is project width",
+          "title": "X Mm",
+          "type": "number"
+        },
+        "y_mm": {
+          "description": "Y-axis measurement in millimeters, where Y is project depth",
+          "title": "Y Mm",
+          "type": "number"
+        },
+        "z_mm": {
+          "description": "Z-axis measurement in millimeters, where Z is project height",
+          "title": "Z Mm",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x_mm",
+        "y_mm",
+        "z_mm"
+      ],
+      "title": "MechanicalVector3",
+      "type": "object"
+    },
+    "MonolithicFlexureBenchmark": {
+      "additionalProperties": false,
+      "properties": {
+        "bend_direction": {
+          "default": "positive_z",
+          "enum": [
+            "positive_z",
+            "negative_z"
+          ],
+          "title": "Bend Direction",
+          "type": "string"
+        },
+        "fixed_ref": {
+          "default": "FLEX_FIXED",
+          "title": "Fixed Ref",
+          "type": "string"
+        },
+        "flexure_length_mm": {
+          "default": 10.0,
+          "exclusiveMinimum": 2.0,
+          "maximum": 80.0,
+          "title": "Flexure Length Mm",
+          "type": "number"
+        },
+        "flexure_thickness_mm": {
+          "default": 0.8,
+          "exclusiveMinimum": 0.2,
+          "maximum": 5.0,
+          "title": "Flexure Thickness Mm",
+          "type": "number"
+        },
+        "flexure_width_mm": {
+          "default": 14.0,
+          "exclusiveMinimum": 2.0,
+          "maximum": 100.0,
+          "title": "Flexure Width Mm",
+          "type": "number"
+        },
+        "kind": {
+          "const": "monolithic_flexure_hinge",
+          "default": "monolithic_flexure_hinge",
+          "title": "Kind",
+          "type": "string"
+        },
+        "material_note": {
+          "default": "Flexure life depends strongly on material, print orientation, layer adhesion, thickness, and strain.",
+          "title": "Material Note",
+          "type": "string"
+        },
+        "moving_ref": {
+          "default": "FLEX_MOVING",
+          "title": "Moving Ref",
+          "type": "string"
+        },
+        "nominal_travel_deg": {
+          "default": 22.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 60.0,
+          "title": "Nominal Travel Deg",
+          "type": "number"
+        },
+        "preview_samples": {
+          "default": 41,
+          "maximum": 201,
+          "minimum": 3,
+          "title": "Preview Samples",
+          "type": "integer"
+        },
+        "rigid_body_length_mm": {
+          "default": 24.0,
+          "exclusiveMinimum": 5.0,
+          "maximum": 150.0,
+          "title": "Rigid Body Length Mm",
+          "type": "number"
+        },
+        "rigid_body_thickness_mm": {
+          "default": 4.0,
+          "exclusiveMinimum": 1.0,
+          "maximum": 30.0,
+          "title": "Rigid Body Thickness Mm",
+          "type": "number"
+        },
+        "rigid_body_width_mm": {
+          "default": 24.0,
+          "exclusiveMinimum": 5.0,
+          "maximum": 150.0,
+          "title": "Rigid Body Width Mm",
+          "type": "number"
+        }
+      },
+      "title": "MonolithicFlexureBenchmark",
+      "type": "object"
+    },
+    "PartDefinition": {
+      "description": "Source-agnostic identity and shared physical data for one selected part.",
+      "properties": {
+        "category": {
+          "description": "Electrical or mechanical part category",
+          "title": "Category",
+          "type": "string"
+        },
+        "datasheet_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Datasheet URL when known",
+          "title": "Datasheet Url"
+        },
+        "description": {
+          "default": "",
+          "description": "Source-agnostic description of the selected part",
+          "title": "Description",
+          "type": "string"
+        },
+        "dimensions_mm": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "description": "Known physical dimensions in millimeters",
+          "title": "Dimensions Mm",
+          "type": "object"
+        },
+        "electrical_specs": {
+          "additionalProperties": true,
+          "description": "Shared electrical limits and ratings",
+          "title": "Electrical Specs",
+          "type": "object"
+        },
+        "manufacturer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Part manufacturer when known",
+          "title": "Manufacturer"
+        },
+        "name": {
+          "description": "Human-readable part name",
+          "title": "Name",
+          "type": "string"
+        },
+        "part_definition_id": {
+          "description": "Stable project-local ID referenced by component instances and BOM rows",
+          "title": "Part Definition Id",
+          "type": "string"
+        },
+        "part_number": {
+          "description": "Manufacturer or generic part number",
+          "title": "Part Number",
+          "type": "string"
+        },
+        "pins": {
+          "description": "Shared physical pin definitions",
+          "items": {
+            "$ref": "#/$defs/PinDefinition"
+          },
+          "title": "Pins",
+          "type": "array"
+        },
+        "sourcing_offers": {
+          "description": "Optional alternate sourcing offers",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Sourcing Offers",
+          "type": "array"
+        },
+        "sourcing_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Selected sourcing URL when known",
+          "title": "Sourcing Url"
+        },
+        "unit_price": {
+          "default": 0.0,
+          "description": "Selected estimated unit price in USD",
+          "minimum": 0.0,
+          "title": "Unit Price",
+          "type": "number"
+        }
+      },
+      "required": [
+        "part_definition_id",
+        "part_number",
+        "name",
+        "category"
+      ],
+      "title": "PartDefinition",
+      "type": "object"
+    },
+    "PinDefinition": {
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Detailed description of the pin function",
+          "title": "Description"
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Signal direction such as input, output, or bidirectional",
+          "title": "Direction"
+        },
+        "interface": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Logical interface such as I2C, SPI, UART, PWM, or analog",
+          "title": "Interface"
+        },
+        "name": {
+          "description": "Pin functional name, e.g., 'VCC', 'TX', 'GPIO4'",
+          "title": "Name",
+          "type": "string"
+        },
+        "pin_id": {
+          "description": "Unique pin identifier, e.g., '1', 'GND', 'D13'",
+          "title": "Pin Id",
+          "type": "string"
+        },
+        "pin_type": {
+          "description": "Type of pin: Power, Ground, Digital, Analog, I2C, SPI, UART, PWM, Passive",
+          "title": "Pin Type",
+          "type": "string"
+        },
+        "power_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Power role such as input, source, regulated_output, or return",
+          "title": "Power Role"
+        },
+        "voltage": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Operating voltage of the pin in Volts, e.g., 3.3 or 5.0",
+          "title": "Voltage"
+        }
+      },
+      "required": [
+        "pin_id",
+        "name",
+        "pin_type"
+      ],
+      "title": "PinDefinition",
+      "type": "object"
+    },
+    "PinMappingEntry": {
+      "properties": {
+        "connected_to": {
+          "description": "Name of the sensor pin/function connected, e.g., 'DHT22 Data'",
+          "title": "Connected To",
+          "type": "string"
+        },
+        "mcu_pin": {
+          "description": "MCU pin identifier, e.g., 'GPIO23'",
+          "title": "Mcu Pin",
+          "type": "string"
+        },
+        "net_name": {
+          "description": "Electrical net name, e.g., 'DHT_SDA_NET'",
+          "title": "Net Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mcu_pin",
+        "connected_to",
+        "net_name"
+      ],
+      "title": "PinMappingEntry",
+      "type": "object"
+    },
+    "PinReference": {
+      "properties": {
+        "pin_id": {
+          "description": "Pin ID on the target component, e.g., 'GND' or '12'",
+          "title": "Pin Id",
+          "type": "string"
+        },
+        "ref_des": {
+          "description": "Component reference designator, e.g., 'U1'",
+          "title": "Ref Des",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref_des",
+        "pin_id"
+      ],
+      "title": "PinReference",
+      "type": "object"
+    },
+    "PortableArtifactReference": {
+      "additionalProperties": true,
+      "properties": {
+        "media_type": {
+          "minLength": 3,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "path": {
+          "description": "Canonical slash-separated project-relative file path; no dot segments, reserved report names, or .forma files.",
+          "pattern": "^[^/\\\\:\\u0000]+(?:/[^/\\\\:\\u0000]+)*$",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Bytes"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "media_type"
+      ],
+      "title": "PortableArtifactReference",
+      "type": "object"
+    },
+    "PortableHardwareIR": {
+      "properties": {
+        "assembly": {
+          "description": "Step-by-step physical build instruction package",
+          "items": {
+            "$ref": "#/$defs/AssemblyStep"
+          },
+          "title": "Assembly",
+          "type": "array"
+        },
+        "assembly_metadata": {
+          "additionalProperties": true,
+          "description": "Additional builder metadata and configurations",
+          "title": "Assembly Metadata",
+          "type": "object"
+        },
+        "bom": {
+          "description": "Deterministically aggregated procurement rows",
+          "items": {
+            "$ref": "#/$defs/BOMLineItem"
+          },
+          "title": "Bom",
+          "type": "array"
+        },
+        "buses": {
+          "description": "Digital communication buses",
+          "items": {
+            "$ref": "#/$defs/BusConnection"
+          },
+          "title": "Buses",
+          "type": "array"
+        },
+        "cad_model": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional canonical CAD model source for the project. This may be a serialized Forma/OpenCAD adapter payload, a server-accessible file path or URL, an S3 location, or renderable mesh data.",
+          "title": "Cad Model"
+        },
+        "components": {
+          "description": "Independently addressable physical component instances",
+          "items": {
+            "$ref": "#/$defs/ComponentInstance"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "constraints": {
+          "description": "Project architectural and electrical constraints",
+          "items": {
+            "type": "string"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "estimated_current_draw_ma": {
+          "default": 0.0,
+          "description": "Total calculated peak current consumption in mA",
+          "title": "Estimated Current Draw Ma",
+          "type": "number"
+        },
+        "fabrication_notes": {
+          "description": "Printed circuit/manufacturability and casing guidelines",
+          "items": {
+            "type": "string"
+          },
+          "title": "Fabrication Notes",
+          "type": "array"
+        },
+        "hardware_ir_version": {
+          "const": "0.2",
+          "default": "0.2",
+          "title": "Hardware Ir Version",
+          "type": "string"
+        },
+        "is_valid": {
+          "default": true,
+          "description": "True if project passes critical validation checks",
+          "title": "Is Valid",
+          "type": "boolean"
+        },
+        "mechanical": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MechanicalNotes"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Enclosure and fabrications specifications"
+        },
+        "nets": {
+          "description": "Electrical netlist connections",
+          "items": {
+            "$ref": "#/$defs/ConnectionNet"
+          },
+          "title": "Nets",
+          "type": "array"
+        },
+        "overview": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectOverview"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Project overview metadata"
+        },
+        "part_definitions": {
+          "description": "Shared source-agnostic part definitions",
+          "items": {
+            "$ref": "#/$defs/PartDefinition"
+          },
+          "title": "Part Definitions",
+          "type": "array"
+        },
+        "pin_mappings": {
+          "description": "MCU functional pin map",
+          "items": {
+            "$ref": "#/$defs/PinMappingEntry"
+          },
+          "title": "Pin Mappings",
+          "type": "array"
+        },
+        "power_rails": {
+          "description": "Active power delivery rails",
+          "items": {
+            "$ref": "#/$defs/PowerRail"
+          },
+          "title": "Power Rails",
+          "type": "array"
+        },
+        "project_version_history": {
+          "description": "Revision and modification history of this project package",
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Project Version History",
+          "type": "array"
+        },
+        "requirements": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FunctionalRequirements"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extracted constraints & requirements"
+        },
+        "system_architecture": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SystemArchitecture"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hierarchical, purpose-driven decomposition of the complete product"
+        },
+        "validation": {
+          "$ref": "#/$defs/ValidationSummary",
+          "description": "Categorized safety and electrical checks"
+        }
+      },
+      "title": "PortableHardwareIR",
+      "type": "object"
+    },
+    "PowerRail": {
+      "properties": {
+        "max_current_capacity_ma": {
+          "description": "Maximum continuous current capacity in mA",
+          "title": "Max Current Capacity Ma",
+          "type": "number"
+        },
+        "rail_id": {
+          "description": "Unique ID for power rail, e.g., 'RAIL_3V3'",
+          "title": "Rail Id",
+          "type": "string"
+        },
+        "source_component": {
+          "description": "Reference designator of the power source component",
+          "title": "Source Component",
+          "type": "string"
+        },
+        "voltage": {
+          "description": "Nominal operating voltage in Volts",
+          "title": "Voltage",
+          "type": "number"
+        }
+      },
+      "required": [
+        "rail_id",
+        "voltage",
+        "max_current_capacity_ma",
+        "source_component"
+      ],
+      "title": "PowerRail",
+      "type": "object"
+    },
+    "PrintInPlaceHingeBenchmark": {
+      "additionalProperties": false,
+      "properties": {
+        "axial_clearance_mm": {
+          "default": 0.4,
+          "exclusiveMinimum": 0.0,
+          "maximum": 5.0,
+          "title": "Axial Clearance Mm",
+          "type": "number"
+        },
+        "barrel_diameter_mm": {
+          "default": 10.0,
+          "exclusiveMinimum": 4.0,
+          "maximum": 80.0,
+          "title": "Barrel Diameter Mm",
+          "type": "number"
+        },
+        "fixed_ref": {
+          "default": "PIP_FIXED",
+          "title": "Fixed Ref",
+          "type": "string"
+        },
+        "hinge_length_mm": {
+          "default": 56.0,
+          "exclusiveMinimum": 20.0,
+          "maximum": 300.0,
+          "title": "Hinge Length Mm",
+          "type": "number"
+        },
+        "kind": {
+          "const": "print_in_place_hinge",
+          "default": "print_in_place_hinge",
+          "title": "Kind",
+          "type": "string"
+        },
+        "leaf_thickness_mm": {
+          "default": 3.0,
+          "exclusiveMinimum": 0.8,
+          "maximum": 20.0,
+          "title": "Leaf Thickness Mm",
+          "type": "number"
+        },
+        "leaf_width_mm": {
+          "default": 24.0,
+          "exclusiveMinimum": 5.0,
+          "maximum": 150.0,
+          "title": "Leaf Width Mm",
+          "type": "number"
+        },
+        "material_note": {
+          "default": "Calibrate clearance for the actual printer, material, layer height, and orientation.",
+          "title": "Material Note",
+          "type": "string"
+        },
+        "moving_ref": {
+          "default": "PIP_MOVING",
+          "title": "Moving Ref",
+          "type": "string"
+        },
+        "pin_diameter_mm": {
+          "default": 4.0,
+          "exclusiveMinimum": 1.0,
+          "maximum": 40.0,
+          "title": "Pin Diameter Mm",
+          "type": "number"
+        },
+        "process": {
+          "default": "FDM",
+          "title": "Process",
+          "type": "string"
+        },
+        "radial_clearance_mm": {
+          "default": 0.35,
+          "exclusiveMinimum": 0.0,
+          "maximum": 3.0,
+          "title": "Radial Clearance Mm",
+          "type": "number"
+        },
+        "stop_thickness_mm": {
+          "default": 2.0,
+          "exclusiveMinimum": 0.5,
+          "maximum": 12.0,
+          "title": "Stop Thickness Mm",
+          "type": "number"
+        },
+        "travel_deg": {
+          "default": 110.0,
+          "exclusiveMinimum": 0.0,
+          "maximum": 180.0,
+          "title": "Travel Deg",
+          "type": "number"
+        },
+        "wall_thickness_mm": {
+          "default": 1.8,
+          "exclusiveMinimum": 0.6,
+          "maximum": 10.0,
+          "title": "Wall Thickness Mm",
+          "type": "number"
+        }
+      },
+      "title": "PrintInPlaceHingeBenchmark",
+      "type": "object"
+    },
+    "ProjectOverview": {
+      "properties": {
+        "category": {
+          "description": "Primary project domain: IoT, Wearable, Automation, Robotics, Smart Home",
+          "title": "Category",
+          "type": "string"
+        },
+        "description": {
+          "description": "Summary of the project",
+          "title": "Description",
+          "type": "string"
+        },
+        "difficulty": {
+          "description": "Difficulty level: Beginner, Intermediate, Advanced",
+          "title": "Difficulty",
+          "type": "string"
+        },
+        "estimated_cost": {
+          "default": 0.0,
+          "description": "Total estimated BOM cost in USD",
+          "title": "Estimated Cost",
+          "type": "number"
+        },
+        "title": {
+          "description": "Title of the hardware project",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "description",
+        "difficulty",
+        "category"
+      ],
+      "title": "ProjectOverview",
+      "type": "object"
+    },
+    "SpurGearPairBenchmark": {
+      "additionalProperties": false,
+      "properties": {
+        "backlash_mm": {
+          "default": 0.1,
+          "minimum": 0,
+          "title": "Backlash Mm",
+          "type": "number"
+        },
+        "bore_diameter_mm": {
+          "default": 6.0,
+          "minimum": 0,
+          "title": "Bore Diameter Mm",
+          "type": "number"
+        },
+        "cycle_seconds": {
+          "default": 6.0,
+          "maximum": 60,
+          "minimum": 1,
+          "title": "Cycle Seconds",
+          "type": "number"
+        },
+        "driven_ref": {
+          "default": "GEAR_DRIVEN",
+          "minLength": 1,
+          "title": "Driven Ref",
+          "type": "string"
+        },
+        "driven_teeth": {
+          "default": 40,
+          "maximum": 120,
+          "minimum": 18,
+          "title": "Driven Teeth",
+          "type": "integer"
+        },
+        "driver_ref": {
+          "default": "GEAR_DRIVER",
+          "minLength": 1,
+          "title": "Driver Ref",
+          "type": "string"
+        },
+        "driver_teeth": {
+          "default": 20,
+          "maximum": 120,
+          "minimum": 18,
+          "title": "Driver Teeth",
+          "type": "integer"
+        },
+        "face_width_mm": {
+          "default": 8.0,
+          "exclusiveMinimum": 0,
+          "maximum": 50,
+          "title": "Face Width Mm",
+          "type": "number"
+        },
+        "kind": {
+          "const": "spur_gear_pair",
+          "default": "spur_gear_pair",
+          "title": "Kind",
+          "type": "string"
+        },
+        "module_mm": {
+          "default": 2.0,
+          "maximum": 5.0,
+          "minimum": 0.5,
+          "title": "Module Mm",
+          "type": "number"
+        },
+        "pressure_angle_deg": {
+          "default": 20.0,
+          "maximum": 25.0,
+          "minimum": 20.0,
+          "title": "Pressure Angle Deg",
+          "type": "number"
+        }
+      },
+      "title": "SpurGearPairBenchmark",
+      "type": "object"
+    },
+    "SystemArchitecture": {
+      "properties": {
+        "root": {
+          "$ref": "#/$defs/SystemNode",
+          "description": "Root of the hierarchical system tree"
+        },
+        "summary": {
+          "description": "Concise explanation of the complete system decomposition",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary",
+        "root"
+      ],
+      "title": "SystemArchitecture",
+      "type": "object"
+    },
+    "SystemInterface": {
+      "properties": {
+        "connects_to": {
+          "description": "System ID on the other side of the boundary",
+          "title": "Connects To",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable boundary between two systems",
+          "title": "Name",
+          "type": "string"
+        },
+        "purpose": {
+          "description": "What crosses this boundary and why the connection is needed",
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "connects_to",
+        "purpose"
+      ],
+      "title": "SystemInterface",
+      "type": "object"
+    },
+    "SystemNode": {
+      "properties": {
+        "children": {
+          "description": "More specific systems nested below this node",
+          "items": {
+            "$ref": "#/$defs/SystemNode"
+          },
+          "title": "Children",
+          "type": "array"
+        },
+        "constraints": {
+          "description": "Important system-level limits without implementation minutiae",
+          "items": {
+            "type": "string"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "detail_owner": {
+          "default": "system architect",
+          "description": "Specialist agent responsible for expanding this node",
+          "title": "Detail Owner",
+          "type": "string"
+        },
+        "domain": {
+          "description": "Broad discipline such as product, electrical, mechanical, or firmware",
+          "title": "Domain",
+          "type": "string"
+        },
+        "expected_component_roles": {
+          "description": "Abstract roles this system needs, not exact parts or pins",
+          "items": {
+            "type": "string"
+          },
+          "title": "Expected Component Roles",
+          "type": "array"
+        },
+        "interfaces": {
+          "description": "Boundaries with sibling or parent systems",
+          "items": {
+            "$ref": "#/$defs/SystemInterface"
+          },
+          "title": "Interfaces",
+          "type": "array"
+        },
+        "name": {
+          "description": "Human-readable system name",
+          "title": "Name",
+          "type": "string"
+        },
+        "purpose": {
+          "description": "Why this system is needed in the complete product",
+          "title": "Purpose",
+          "type": "string"
+        },
+        "responsibilities": {
+          "description": "Outcomes owned by this system",
+          "items": {
+            "type": "string"
+          },
+          "title": "Responsibilities",
+          "type": "array"
+        },
+        "system_id": {
+          "description": "Stable dotted ID such as electrical.power or mechanical.enclosure",
+          "title": "System Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "system_id",
+        "name",
+        "domain",
+        "purpose"
+      ],
+      "title": "SystemNode",
+      "type": "object"
+    },
+    "ValidationIssue": {
+      "properties": {
+        "category": {
+          "description": "Short circuit, Voltage Mismatch, Unpowered IC, Pin Conflict, Overcurrent, Safety Block",
+          "title": "Category",
+          "type": "string"
+        },
+        "description": {
+          "description": "Detailed description of the validation issue",
+          "title": "Description",
+          "type": "string"
+        },
+        "severity": {
+          "description": "Severity level: CRITICAL, WARNING, or INFO",
+          "title": "Severity",
+          "type": "string"
+        },
+        "troubleshooting": {
+          "description": "Suggested remediation action for self-healing or user override",
+          "title": "Troubleshooting",
+          "type": "string"
+        }
+      },
+      "required": [
+        "severity",
+        "category",
+        "description",
+        "troubleshooting"
+      ],
+      "title": "ValidationIssue",
+      "type": "object"
+    },
+    "ValidationSummary": {
+      "properties": {
+        "critical": {
+          "description": "Critical blocking issues or errors",
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          },
+          "title": "Critical",
+          "type": "array"
+        },
+        "info": {
+          "description": "Informational recommendations",
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          },
+          "title": "Info",
+          "type": "array"
+        },
+        "warning": {
+          "description": "Warning level issues",
+          "items": {
+            "$ref": "#/$defs/ValidationIssue"
+          },
+          "title": "Warning",
+          "type": "array"
+        }
+      },
+      "title": "ValidationSummary",
+      "type": "object"
+    }
+  },
+  "$id": "urn:caid:forma:project:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "Strict integrity contract for portable delivery; legacy imports stay separate.",
+  "properties": {
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/PortableArtifactReference"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "format": {
+      "const": "forma-project",
+      "default": "forma-project",
+      "title": "Format",
+      "type": "string"
+    },
+    "project_id": {
+      "minLength": 1,
+      "title": "Project Id",
+      "type": "string"
+    },
+    "project_ir": {
+      "$ref": "#/$defs/PortableHardwareIR"
+    },
+    "prompt": {
+      "default": "",
+      "title": "Prompt",
+      "type": "string"
+    },
+    "title": {
+      "default": "",
+      "title": "Title",
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "visibility": {
+      "default": "public",
+      "title": "Visibility",
+      "type": "string"
+    },
+    "workspace_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Workspace Id"
+    }
+  },
+  "required": [
+    "project_id",
+    "project_ir"
+  ],
+  "title": "PortableProjectManifest",
+  "type": "object"
+}

@@ -62,9 +62,9 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
     def test_cad_adapter_declares_managed_native_dependency(self) -> None:
         script = SKILL_ROOT / "scripts" / "cad.py"
         content = script.read_text(encoding="utf-8")
-        self.assertIn('SUPPORTED_OPENCAD_VERSION = "0.2.4"', content)
-        self.assertIn('OPENCAD_KINEMATICS_COMMIT = "1c417752eb42d29b951784e80f65ac79c3fb6e0e"', content)
-        self.assertIn("git+https://github.com/caid-technologies/OpenCAD.git@", content)
+        self.assertIn('SUPPORTED_OPENCAD_VERSION = "0.2.5"', content)
+        self.assertIn('OPENCAD_KINEMATICS_COMMIT = "d2fd81c2309eb400224203be1b9c91298f09aa64"', content)
+        self.assertIn("git+https://github.com/caid-technologies/Open-CAD.git@", content)
         self.assertIn('create_backend("occt", require_native=True)', content)
         self.assertIn("FORMA_OPENCAD_REQUIREMENT", content)
 

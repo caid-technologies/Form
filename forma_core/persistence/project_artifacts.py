@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
+import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +23,44 @@ DEFAULT_PROJECT_ARTIFACT_MAX_BYTES = 50 * 1024 * 1024
 
 class ProjectArtifactStorageError(RuntimeError):
     """Raised when private project artifact storage cannot be used."""
+
+
+def _publish_local_artifact(target: Path, content: bytes) -> None:
+    """Publish complete bytes; identical competing writers share the same object.
+
+    Windows can deny replacement while another reader has the target open.
+    A verified existing object already satisfies this content-addressed write;
+    otherwise retry the atomic replacement briefly, never write it in place.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        for attempt in range(8):
+            try:
+                if target.read_bytes() == content:
+                    return
+            except FileNotFoundError:
+                pass
+            except PermissionError:
+                # A short-lived reader/writer can also prevent inspection.
+                pass
+            try:
+                temporary.replace(target)
+                return
+            except PermissionError as exc:
+                if attempt == 7:
+                    raise ProjectArtifactStorageError(
+                        "Local artifact is busy; retry the upload. Existing bytes were not modified."
+                    ) from exc
+                time.sleep(min(0.01 * (2 ** attempt), 0.1))
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
@@ -171,10 +212,7 @@ class ProjectArtifactStorage:
         backend = self.config["backend"]
         if backend == "local":
             target = Path(self.config["directory"]) / Path(*key.split("/"))
-            target.parent.mkdir(parents=True, exist_ok=True)
-            temporary = target.with_suffix(f"{target.suffix}.tmp")
-            temporary.write_bytes(content)
-            temporary.replace(target)
+            _publish_local_artifact(target, content)
         elif backend == "supabase":
             bucket = self._supabase_bucket()
             options = {
@@ -226,6 +264,10 @@ class ProjectArtifactStorage:
             except Exception as exc:
                 raise ProjectArtifactStorageError("Project artifact storage download failed.") from exc
         self._validate_size(content)
+        if hashlib.sha256(content).hexdigest() != normalized_sha256:
+            raise ProjectArtifactStorageError(
+                "Stored project artifact failed its SHA-256 integrity check. Re-upload the original bytes."
+            )
         return StoredProjectArtifact(project_id, normalized_sha256, normalized_media_type, len(content), content)
 
     def contains(self, project_id: str, sha256: str) -> bool:
