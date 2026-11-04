@@ -177,6 +177,55 @@ class ProjectInspectionTests(unittest.TestCase):
             self.assertTrue(load_project_manifest(path).title.startswith("revision "))
             self.assertEqual([path], list(Path(directory).iterdir()))
 
+    def test_manifest_write_retries_sharing_denial_then_publishes_its_own_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "forma-project.json"
+            previous = self.manifest()
+            previous.title = "previous complete manifest"
+            write_project_manifest(path, previous)
+            old_bytes = path.read_bytes()
+            revised = self.manifest()
+            revised.title = "this caller's complete manifest"
+            replace = Path.replace
+            attempts = []
+
+            def transient_sharing_denial(temporary, destination):
+                attempts.append(temporary)
+                self.assertEqual(revised.title, json.loads(temporary.read_text())["title"])
+                if len(attempts) <= 3:
+                    self.assertEqual(old_bytes, destination.read_bytes())
+                    raise PermissionError("simulated Windows sharing denial")
+                return replace(temporary, destination)
+
+            with patch.object(Path, "replace", transient_sharing_denial), patch(
+                "forma_core.workspaces.projects.manifest.time.sleep"
+            ) as sleep:
+                write_project_manifest(path, revised)
+            self.assertEqual(4, len(attempts))
+            self.assertEqual(1, len(set(attempts)))
+            self.assertEqual(3, sleep.call_count)
+            self.assertEqual(revised.title, load_project_manifest(path).title)
+            self.assertEqual([path], list(Path(directory).iterdir()))
+
+    def test_manifest_write_permanent_denial_is_bounded_and_preserves_previous_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "forma-project.json"
+            previous = self.manifest()
+            previous.title = "previous complete manifest"
+            write_project_manifest(path, previous)
+            old_bytes = path.read_bytes()
+            revised = self.manifest()
+            revised.title = "unpublished revision"
+            with patch.object(Path, "replace", side_effect=PermissionError("destination remains busy")) as replace, patch(
+                "forma_core.workspaces.projects.manifest.time.sleep"
+            ) as sleep:
+                with self.assertRaisesRegex(PermissionError, "remains busy"):
+                    write_project_manifest(path, revised)
+            self.assertEqual(8, replace.call_count)
+            self.assertEqual(7, sleep.call_count)
+            self.assertEqual(old_bytes, path.read_bytes())
+            self.assertEqual([path], list(Path(directory).iterdir()))
+
     def test_deterministic_bundle_roundtrip_preserves_source_and_review(self):
         content = b"inspectable design"
         manifest = record_project_review(self.manifest(content), decision="approved", reviewer="Engineer")

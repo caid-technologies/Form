@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import os
 import tempfile
+import time
 from typing import Any, Literal, Mapping
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -357,6 +358,11 @@ def load_project_manifest(path: str | Path) -> ProjectManifest:
 
 
 def write_project_manifest(path: str | Path, manifest: ProjectManifest) -> None:
+    """Atomically publish this payload, retrying transient Windows sharing locks.
+
+    A competing writer's bytes never count as this write succeeding. If the
+    bounded replacement attempts fail, leave the prior complete file intact.
+    """
     project_path = Path(path)
     safe_payload = redact_project_secrets(manifest.model_dump(mode="json"))
     project_path.parent.mkdir(parents=True, exist_ok=True)
@@ -368,7 +374,17 @@ def write_project_manifest(path: str | Path, manifest: ProjectManifest) -> None:
             temporary.write(json.dumps(safe_payload, indent=2, sort_keys=True, allow_nan=False) + "\n")
             temporary.flush()
             os.fsync(temporary.fileno())
-        temporary_path.replace(project_path)
+        for attempt in range(8):
+            try:
+                temporary_path.replace(project_path)
+                break
+            except PermissionError:
+                # Windows can briefly deny replacement while another process
+                # reads or replaces the destination. Keep the same synced temp
+                # file and retry; never fall back to truncating the manifest.
+                if attempt == 7:
+                    raise
+                time.sleep(min(0.01 * (2 ** attempt), 0.1))
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
