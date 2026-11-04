@@ -16,7 +16,7 @@ runtime before writing or running the model:
 python <skill-directory>/scripts/cad.py setup
 ```
 
-The setup command reuses compatible OpenCAD `0.2.4` installations only when native OCCT, rigid kinematics, spur gears and gear coupling are available. Otherwise it installs the pinned OpenCAD gear-motion commit `1c417752eb42d29b951784e80f65ac79c3fb6e0e`. It verifies native OCCT before a generation job begins. Do not import OpenCAD from Forma's core package; use the adapter's
+The setup command reuses compatible OpenCAD `0.2.5` installations only when native OCCT, rigid kinematics, spur gears and gear coupling are available. Otherwise it installs the pinned Open-CAD foundation commit `89c85423b831f2a5b66d21d2087b7eb45d113585`. It verifies native OCCT before a generation job begins. Do not import OpenCAD from Forma's core package; use the adapter's
 `build` command for model execution and export.
 
 ## Workspace

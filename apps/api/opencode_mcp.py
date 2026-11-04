@@ -10,8 +10,10 @@ from starlette.concurrency import run_in_threadpool
 
 from apps.api.a2a import _persist_mcp_compile
 from apps.api.auth import UserContext
+from apps.api.component_assets import call_asset_tool, library_tools
+from forma_core.assets.models import AssetToolArguments
 from apps.api.opencode_images import ImageToolError, generate_project_image, image_metadata_for_agent, is_image_metadata
-from forma_core.workspaces.projects.cad_generation import CadGenerationError, ensure_native_cad_model
+from forma_core.workspaces.projects.cad_generation import CadGenerationError
 from forma_core.debug import new_error_correlation_id
 from forma_core.opencode.architecture import ArchitectureContinuityError, reconcile_architecture
 from forma_core.opencode.capabilities import ConnectorCapability
@@ -25,9 +27,12 @@ from forma_core.opencode.models import (
     AuthoringToolError,
 )
 from forma_core.database import get_latest_project_revision, get_project_revision_by_source_job
-from forma_core.validation import build_validation_summary, validate_circuit
+from forma_core.validation import validate_circuit
 from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
+from forma_core.workspaces.projects.inspection import compile_project, ProjectInspection, ReviewDeclaration
+from forma_core.workspaces.projects.manifest import ProjectManifest
+from apps.api.project_foundation import inspect_revision
 from forma_core.utils import generate_mermaid_chart, generate_svg_schematic
 
 
@@ -57,7 +62,7 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
         "required": ["project_ir"],
         "additionalProperties": False,
     }
-    return [
+    return library_tools() + [
         {
             "name": "forma.opencode.create_project",
             "description": "Initialize a missing private project. If a project already exists, return it unchanged. Never use this to reset or resume a design.",
@@ -67,6 +72,16 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
             "name": "forma.opencode.read_project",
             "description": "Read the latest saved session project, revision, current validation, and design_outcome before reporting results.",
             "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "forma.opencode.inspect_project",
+            "description": "Inspect the saved revision using shared deterministic validators and authorized artifact bytes. Report integrity, stale CAD input bindings, assumptions, and engineering review status. Checks do not certify physical correctness.",
+            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+        {
+            "name": "forma.opencode.project_contract",
+            "description": "Read the documented portable project, inspection report and human review declaration JSON Schemas. No model inference or project write occurs.",
+            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         },
         {
             "name": "forma.opencode.update_project",
@@ -150,13 +165,21 @@ async def _handle_request(request: McpJsonRpcRequest, capability: ConnectorCapab
     except Exception:
         logger.warning("Restricted OpenCode MCP tool failed")
         return _error(request_id, -32000, "The OpenCode project tool could not complete.", "mcp_tool_failed")
-    return _result(request_id, {"content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result})
+    response = {"content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result}
+    if result.get("status") in {"invalid_request", "invalid_asset", "recovery_required"}:
+        response["isError"] = True
+    return _result(request_id, response)
 
 
 async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArguments, capability: ConnectorCapability) -> dict[str, object]:
     allowed = {tool["name"] for tool in opencode_mcp_tools()}
     if name not in allowed:
         raise PermissionError("The requested tool is not part of the project-only surface.")
+    if name.startswith("forma.opencode.asset_"):
+        if not isinstance(arguments, AssetToolArguments):
+            raise ValueError("Asset arguments are required.")
+        return await run_in_threadpool(call_asset_tool, name, arguments, capability,
+                                       lambda: _assert_session_active(capability))
     if name == "forma.opencode.generate_image":
         if not isinstance(arguments, GenerateImageArguments):
             raise ValueError("Image arguments are required.")
@@ -171,6 +194,14 @@ async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArgum
         is_authenticated=True,
         is_admin=False,
     )
+    if name == "forma.opencode.project_contract":
+        from forma_core.workspaces.projects.portable import PortableProjectManifest
+        return {"manifest": ProjectManifest.model_json_schema(), "portable_manifest": PortableProjectManifest.model_json_schema(), "inspection": ProjectInspection.model_json_schema(),
+                "review": ReviewDeclaration.model_json_schema()}
+    if name == "forma.opencode.inspect_project":
+        _assert_session_active(capability)
+        revision = await run_in_threadpool(get_latest_project_revision, project_id, owner_user_id)
+        return await run_in_threadpool(inspect_revision, revision, project_id, owner_user_id)
     if name == "forma.opencode.create_project":
         from forma_core.workspaces.projects.state import ProjectStateError
         try:
@@ -192,6 +223,13 @@ async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArgum
         return _tool_result(project, project_id, _revision_identifier(revision))
     try:
         # Accept object arguments from older clients and existing sessions too.
+        from forma_core.config.compatibility import ensure_supported_hardware_ir_version
+        try:
+            raw_project = json.loads(arguments.project_ir) if isinstance(arguments.project_ir, str) else arguments.project_ir
+        except json.JSONDecodeError:
+            raw_project = None  # Pydantic below supplies the established field-error contract.
+        if isinstance(raw_project, dict):
+            ensure_supported_hardware_ir_version(raw_project)
         project = (
             HardwareIntermediateRepresentation.model_validate_json(arguments.project_ir)
             if isinstance(arguments.project_ir, str)
@@ -226,7 +264,8 @@ def _compile(project: HardwareIntermediateRepresentation, project_id: str, user_
     from forma_core.workspaces.projects.state import ProjectStateError
     # Images are authored by the server tool; a subsequent IR edit cannot erase
     # them, replace their provenance or make the agent echo their base64 payloads.
-    metadata = {key: value for key, value in (project.assembly_metadata or {}).items() if not is_image_metadata(key)}
+    metadata = {key: value for key, value in (project.assembly_metadata or {}).items()
+                if not is_image_metadata(key) and key != "component_asset_refs"}
     try:
         previous = get_latest_project_revision(project_id, user_context.owner_user_id or "")
     except ProjectStateError as exc:
@@ -235,15 +274,13 @@ def _compile(project: HardwareIntermediateRepresentation, project_id: str, user_
         previous = None
     reconcile_architecture(project, previous.state if previous else None)
     if previous is not None and isinstance(previous.state.assembly_metadata, dict):
-        metadata.update({key: value for key, value in previous.state.assembly_metadata.items() if is_image_metadata(key)})
+        metadata.update({key: value for key, value in previous.state.assembly_metadata.items()
+                         if is_image_metadata(key) or key == "component_asset_refs"})
     metadata.update({"project_id": project_id, "authoring_agent": "opencode"})
     project.assembly_metadata = metadata
-    issues = validate_circuit(project.components, project.nets, project.requirements)
-    project.validation = build_validation_summary(issues)
-    project.is_valid = not project.validation.critical
-    ensure_native_cad_model(project, project_id=project_id,
-                            required=bool(project.mechanical and project.mechanical.cad_operations),
-                            authoring_agent="opencode", workflow="default")
+    project = compile_project(project, project_id=project_id,
+                              required_cad=bool(project.mechanical and project.mechanical.cad_operations),
+                              authoring_agent="opencode", workflow="default")
     source_job_id = "opencode-" + hashlib.sha256(
         json.dumps(project.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:32]
@@ -266,6 +303,7 @@ def _revision_identifier(revision: object | None) -> str | None:
         return None
     value = getattr(revision, "revision_id", None) or getattr(revision, "id", None)
     return str(value) if value else None
+
 
 
 def _tool_result(project: HardwareIntermediateRepresentation, project_id: str, revision_id: str | None) -> dict[str, object]:

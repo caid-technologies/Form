@@ -39,6 +39,12 @@ Forma is an **alpha research prototype** for makers and developers. Electrical v
 
 ## Quick start
 
+For the supported developer workflow—typed design source, native compilation,
+artifact inspection, review records, and portable export/reopen—see
+[Project foundation](docs/project-foundation.md). Python, CLI, and MCP callers
+share the same deterministic boundaries. Generated designs retain explicit
+assumptions and require engineering judgment.
+
 Use [Form in your browser](https://caid-technologies.us/), or run it locally with OpenCode. Local authoring, validation, rendering, and project status do not require a Forma account.
 
 ### Run locally with OpenCode

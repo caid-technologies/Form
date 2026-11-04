@@ -59,7 +59,7 @@ class AuthModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("mcp-api-key", context.provider)
         self.assertTrue(context.is_admin)
 
-    async def test_short_mcp_api_key_falls_back_to_admin_auth(self) -> None:
+    async def test_short_mcp_api_key_falls_back_to_user_auth(self) -> None:
         fallback_context = UserContext(
             provider="clerk",
             subject="admin-user",
@@ -78,7 +78,7 @@ class AuthModeTests(unittest.IsolatedAsyncioTestCase):
             },
             clear=True,
         ), patch(
-            "apps.api.auth.require_admin_user_context", fallback
+            "apps.api.auth.require_user_context", fallback
         ):
             context = await require_mcp_user_context(request)
 

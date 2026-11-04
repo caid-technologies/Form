@@ -11,6 +11,7 @@ from forma_core.opencode.schema import OPENCODE_TABLE_CONTRACTS
 # well as table visibility, so schema drift fails at startup rather than during
 # an unrelated request.
 APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
+    TableContract("component_asset_versions", ("asset_id", "version", "scope_key", "identity_key", "family_key", "payload_json", "created_at")),
     TableContract(
         "component_templates",
         ("id", "part_number", "name", "category", "description", "price", "sourcing_url", "pins", "use_cases"),

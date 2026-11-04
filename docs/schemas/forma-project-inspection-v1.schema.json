@@ -1,0 +1,211 @@
+{
+  "$defs": {
+    "HumanReview": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "const": "declaration_not_authenticated",
+          "default": "declaration_not_authenticated",
+          "title": "Authority",
+          "type": "string"
+        },
+        "declaration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReviewDeclaration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "stale",
+            "invalid"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "HumanReview",
+      "type": "object"
+    },
+    "InspectionCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "status",
+        "message"
+      ],
+      "title": "InspectionCheck",
+      "type": "object"
+    },
+    "ReviewDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "const": "declaration_not_authenticated",
+          "default": "declaration_not_authenticated",
+          "title": "Authority",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "rejected"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "format": {
+          "const": "forma.engineering-review",
+          "default": "forma.engineering-review",
+          "title": "Format",
+          "type": "string"
+        },
+        "manifest_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Sha256",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Note",
+          "type": "string"
+        },
+        "recorded_at": {
+          "title": "Recorded At",
+          "type": "string"
+        },
+        "reviewer": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Reviewer",
+          "type": "string"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "manifest_sha256",
+        "decision",
+        "reviewer",
+        "recorded_at"
+      ],
+      "title": "ReviewDeclaration",
+      "type": "object"
+    }
+  },
+  "$id": "urn:caid:forma:project-inspection:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/InspectionCheck"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "format": {
+      "const": "forma.project-inspection",
+      "default": "forma.project-inspection",
+      "title": "Format",
+      "type": "string"
+    },
+    "human_review": {
+      "$ref": "#/$defs/HumanReview"
+    },
+    "is_valid": {
+      "title": "Is Valid",
+      "type": "boolean"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "manifest_sha256": {
+      "title": "Manifest Sha256",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "project_readiness": {
+      "enum": [
+        "draft",
+        "partial",
+        "complete"
+      ],
+      "title": "Project Readiness",
+      "type": "string"
+    },
+    "validation": {
+      "additionalProperties": true,
+      "title": "Validation",
+      "type": "object"
+    },
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "project_id",
+    "manifest_sha256",
+    "is_valid",
+    "project_readiness",
+    "checks",
+    "validation",
+    "human_review",
+    "assumptions",
+    "limitations"
+  ],
+  "title": "ProjectInspection",
+  "type": "object"
+}

@@ -704,6 +704,7 @@ class ProjectReadAccessTests(unittest.TestCase):
         state = HardwareIntermediateRepresentation.model_validate(_project(project_id, owner_user_id="user-a", visibility="private").hardware_ir)
         revision = SimpleNamespace(
             project_id=project_id,
+            revision_id="22222222-2222-4222-8222-222222222222",
             state=state,
             revision=2,
             design_brief_version=1,

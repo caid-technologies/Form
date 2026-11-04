@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -33,7 +32,7 @@ class OrcaSlicerAdapter:
         """Return common host-install locations not normally added to PATH."""
         candidates: list[Path] = []
         for variable in ("ProgramFiles", "ProgramW6432", "LOCALAPPDATA"):
-            root = str(os.environ.get(variable) or "").strip()
+            root = str(config.get(variable) or "").strip()
             if not root:
                 continue
             base = Path(root)

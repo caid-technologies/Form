@@ -117,7 +117,7 @@ class ImageToolTests(unittest.TestCase):
         generate_project_image(self.args, self.cap)
         user = UserContext(provider="test", subject="owner", owner_user_id="owner", is_authenticated=True, is_admin=False)
         edited = HardwareIntermediateRepresentation(assembly_metadata={"product_image_model": "forged"})
-        with patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=self.saved), patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), patch("apps.api.opencode_mcp.ensure_native_cad_model"), patch("apps.api.opencode_mcp._persist_mcp_compile"):
+        with patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=self.saved), patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), patch("forma_core.workspaces.projects.cad_generation.ensure_native_cad_model"), patch("apps.api.opencode_mcp._persist_mcp_compile"):
             result = _compile(edited, self.project_id, user)
         self.assertIn("product_image_data", edited.assembly_metadata)
         self.assertEqual("gpt-image-2", result["project_ir"]["assembly_metadata"]["product_image_model"])

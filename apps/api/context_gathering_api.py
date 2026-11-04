@@ -177,11 +177,16 @@ def _workflow_error(exc: WorkflowStateError) -> HTTPException:
 def context_gathering_agent(
     user: UserContext = Depends(require_user_context),
 ) -> ContextGatheringAgent:
-    if user.owner_user_id:
-        settings = resolve_user_integration_settings(UserIntegrationStore.for_user(user.owner_user_id))
-    else:
-        settings = resolve_user_integration_settings()
-    return ContextGatheringAgent(llm_provider=build_llm_provider(settings=settings))
+    try:
+        if user.owner_user_id:
+            settings = resolve_user_integration_settings(UserIntegrationStore.for_user(user.owner_user_id))
+        else:
+            settings = resolve_user_integration_settings()
+        return ContextGatheringAgent(llm_provider=build_llm_provider(settings=settings))
+    except Exception as exc:
+        logger.exception("Context gathering agent initialization failed")
+        raise HTTPException(status_code=500, detail={"code": "context_agent_initialization_failed",
+            "message": "Could not initialize the context gathering agent."}) from exc
 
 
 @router.post(
@@ -194,6 +199,7 @@ def gather_project_context_endpoint(
     request: ContextGatheringRequest,
     user: UserContext = Depends(require_user_context),
     build_dispatcher: ContextBuildDispatcher | None = Depends(context_build_dispatcher),
+    agent: ContextGatheringAgent = Depends(context_gathering_agent),
 ) -> ContextGatheringResponse:
     """Route one natural conversation turn and mutate context only when appropriate."""
 
@@ -214,45 +220,6 @@ def gather_project_context_endpoint(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "pdf_ingest_failed", "message": str(exc)},
-        ) from exc
-
-    try:
-        agent = context_gathering_agent(user)
-    except Exception as exc:
-        store = UserIntegrationStore.for_user(user.owner_user_id)
-        database_host = urlparse(DATABASE_URL).hostname
-
-        logger.exception(
-            "Context gathering agent initialization failed: "
-            "project_id=%s user_id=%s database_backend=%s "
-            "database_source=%s database_host=%s "
-            "integration_store=%s integration_storage=%s",
-            project_id,
-            user.owner_user_id,
-            DATABASE_BACKEND,
-            DATABASE_SOURCE,
-            database_host,
-            type(store).__name__,
-            getattr(store, "storage_label", None),
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "code": "context_agent_initialization_failed",
-                "message": "Could not initialize the context gathering agent.",
-                "error_type": type(exc).__name__,
-                "error": str(exc),
-                "database_backend": DATABASE_BACKEND,
-                "database_source": DATABASE_SOURCE,
-                "database_host": database_host,
-                "integration_store": type(store).__name__,
-                "integration_storage": getattr(
-                    store,
-                    "storage_label",
-                    None,
-                ),
-            },
         ) from exc
 
     owner = _owner(user)

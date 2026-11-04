@@ -1,0 +1,51 @@
+name: Supported project foundation
+
+on:
+  pull_request:
+  push:
+    branches: [main, codex/production-workflow-foundation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      FORMA_CAD_RUN_INTEGRATION_TESTS: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Build installable distribution
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Install supported native environment and built wheel
+        shell: bash
+        run: |
+          python -m pip install -c scripts/quality/foundation-constraints.txt -r apps/api/requirements.txt pytest pytest-subtests dist/*.whl "opencad[occt] @ git+https://github.com/caid-technologies/Open-CAD.git@89c85423b831f2a5b66d21d2087b7eb45d113585#subdirectory=packages/opencad"
+          python -m pip check
+      - name: Exercise installed wheel outside the source checkout
+        run: python scripts/quality/check-foundation-wheel.py --fixture examples/foundation/plate.json --output "${{ runner.temp }}/foundation-evidence"
+      - name: Check project contracts, native lifecycle, assets and agent interfaces
+        run: python -m pytest tests/projects/test_foundation_workflow.py tests/projects/test_project_inspection.py tests/projects/test_compile_invalidation.py tests/api/test_project_foundation.py tests/integrations/test_component_assets.py tests/integrations/test_project_artifacts.py tests/opencode tests/tooling/test_core_cli.py tests/tooling/test_cad_skill.py tests/persistence/test_database_schema_drift.py -q
+      - name: Check full existing suite
+        run: python -m unittest discover -s tests -t .
+      - name: Preserve evidence and built distributions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: foundation-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/foundation-evidence/
+            dist/
+          if-no-files-found: warn

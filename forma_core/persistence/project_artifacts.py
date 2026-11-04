@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import errno
+import os
 import re
+import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,10 +20,103 @@ from forma_core.workspaces.projects.manifest import normalize_artifact_media_typ
 DEFAULT_PROJECT_ARTIFACT_BUCKET = "cli-project-artifacts"
 DEFAULT_PROJECT_ARTIFACT_DIRECTORY = ".forma/cli-artifacts"
 DEFAULT_PROJECT_ARTIFACT_MAX_BYTES = 50 * 1024 * 1024
+_UNSUPPORTED_HARDLINK_ERRNOS = {
+    getattr(errno, name, None) for name in ("EXDEV", "ENOSYS", "ENOTSUP", "EOPNOTSUPP")
+} - {None}
 
 
 class ProjectArtifactStorageError(RuntimeError):
     """Raised when private project artifact storage cannot be used."""
+
+
+def _read_local_artifact(path: Path) -> bytes:
+    """Retry sharing locks without treating an unavailable object as corrupt."""
+    for attempt in range(8):
+        try:
+            return path.read_bytes()
+        except PermissionError as exc:
+            if attempt == 7:
+                raise ProjectArtifactStorageError(
+                    "Local artifact is busy or access is denied; retry reading it."
+                ) from exc
+            time.sleep(min(0.01 * (2 ** attempt), 0.1))
+
+
+def _remove_local_temporary(path: Path) -> None:
+    # On Windows a reader of the newly published hardlink can briefly prevent
+    # deletion of the temporary link to the same file.
+    for attempt in range(8):
+        try:
+            path.unlink(missing_ok=True)
+            return
+        except PermissionError as exc:
+            if attempt == 7:
+                raise ProjectArtifactStorageError("Local artifact temporary file remains busy.") from exc
+            time.sleep(min(0.01 * (2 ** attempt), 0.1))
+
+
+def _publish_local_artifact(target: Path, content: bytes) -> None:
+    """Publish complete bytes; identical competing writers share the same object.
+
+    Create-once hardlink publication never replaces a winning writer's object.
+    Replacement is reserved for verified corrupt bytes, or filesystems without
+    hardlink support. Neither path ever truncates an object in place.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if _read_local_artifact(target) == content:
+            return
+    except FileNotFoundError:
+        pass
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        use_links = True
+        for attempt in range(8):
+            publication_error = None
+            if use_links:
+                try:
+                    os.link(temporary, target)
+                    return
+                except (FileExistsError, PermissionError) as exc:
+                    publication_error = exc
+                except OSError as exc:
+                    if exc.errno in _UNSUPPORTED_HARDLINK_ERRNOS or getattr(exc, "winerror", None) in {1, 50}:
+                        use_links = False
+                    else:
+                        raise ProjectArtifactStorageError("Local artifact publication failed.") from exc
+            try:
+                if _read_local_artifact(target) == content:
+                    return
+            except FileNotFoundError:
+                if use_links:
+                    # A competing delete or transient sharing lock can leave
+                    # the target absent after publication failed. Retry create;
+                    # do not replace a winner that may appear meanwhile.
+                    if attempt == 7:
+                        raise ProjectArtifactStorageError(
+                            "Local artifact publication is busy or access is denied; retry the upload."
+                        ) from publication_error
+                    time.sleep(min(0.01 * (2 ** attempt), 0.1))
+                    continue
+            try:
+                # The existing bytes differ, so this is explicit corruption
+                # repair. The fallback also handles hardlink-less filesystems.
+                temporary.replace(target)
+                return
+            except PermissionError as exc:
+                if attempt == 7:
+                    raise ProjectArtifactStorageError(
+                        "Local artifact is busy; retry the upload. Existing bytes were not modified."
+                    ) from exc
+                time.sleep(min(0.01 * (2 ** attempt), 0.1))
+    finally:
+        if temporary is not None:
+            _remove_local_temporary(temporary)
 
 
 @dataclass(frozen=True)
@@ -171,10 +268,7 @@ class ProjectArtifactStorage:
         backend = self.config["backend"]
         if backend == "local":
             target = Path(self.config["directory"]) / Path(*key.split("/"))
-            target.parent.mkdir(parents=True, exist_ok=True)
-            temporary = target.with_suffix(f"{target.suffix}.tmp")
-            temporary.write_bytes(content)
-            temporary.replace(target)
+            _publish_local_artifact(target, content)
         elif backend == "supabase":
             bucket = self._supabase_bucket()
             options = {
@@ -212,7 +306,7 @@ class ProjectArtifactStorage:
             raise ProjectArtifactStorageError("Project artifact media type is invalid.") from exc
         backend = self.config["backend"]
         if backend == "local":
-            content = (Path(self.config["directory"]) / Path(*key.split("/"))).read_bytes()
+            content = _read_local_artifact(Path(self.config["directory"]) / Path(*key.split("/")))
         elif backend == "supabase":
             try:
                 content = bytes(self._supabase_bucket().download(key))
@@ -226,6 +320,10 @@ class ProjectArtifactStorage:
             except Exception as exc:
                 raise ProjectArtifactStorageError("Project artifact storage download failed.") from exc
         self._validate_size(content)
+        if hashlib.sha256(content).hexdigest() != normalized_sha256:
+            raise ProjectArtifactStorageError(
+                "Stored project artifact failed its SHA-256 integrity check. Re-upload the original bytes."
+            )
         return StoredProjectArtifact(project_id, normalized_sha256, normalized_media_type, len(content), content)
 
     def contains(self, project_id: str, sha256: str) -> bool:

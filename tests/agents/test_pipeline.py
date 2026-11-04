@@ -64,7 +64,9 @@ class PipelineMetadataTests(unittest.TestCase):
         self.assertEqual("web_research", events[0].workflow)
         self.assertEqual("external_research", events[0].step_id)
         self.assertEqual("External Source Research Agent", events[0].agent)
-        self.assertEqual({"query_count": 3}, events[0].details)
+        self.assertEqual(3, events[0].details["query_count"])
+        self.assertEqual("logical", events[0].details["fidelity"])
+        self.assertIn("reversibility", events[0].details["cost"])
 
     def test_optional_image_step_is_explicitly_included(self) -> None:
         steps = list_agent_pipeline_steps("default", include_image=True)

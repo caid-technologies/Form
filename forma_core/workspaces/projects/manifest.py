@@ -7,10 +7,13 @@ import json
 import mimetypes
 from pathlib import Path
 import re
-from typing import Any, Mapping
+import os
+import tempfile
+import time
+from typing import Any, Literal, Mapping
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 PROJECT_MANIFEST_FORMAT = "forma-project"
@@ -110,11 +113,13 @@ def validate_artifact_references(
             raise ValueError(f"Project artifact {index + 1} must be an object.")
         path = normalize_artifact_path(record.get("path"))
         lower_path = path.lower()
-        if lower_path == "forma-project.json" or lower_path == ".forma" or lower_path.startswith(".forma/"):
+        if lower_path in {"forma-project.json", "forma-inspection.json", ".forma"} or lower_path.startswith(".forma/"):
             raise ValueError(f"Project artifact path is reserved: {path}")
         path_key = path.casefold()
         if path_key in seen_paths:
             raise ValueError(f"Project artifact path is duplicated: {path}")
+        if any(path_key.startswith(existing + "/") or existing.startswith(path_key + "/") for existing in seen_paths):
+            raise ValueError(f"Project artifact paths conflict as files and directories: {path}")
         seen_paths.add(path_key)
         record["path"] = path
 
@@ -208,8 +213,8 @@ class ProjectManifest(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    format: str = PROJECT_MANIFEST_FORMAT
-    version: int = Field(default=PROJECT_MANIFEST_VERSION, ge=1)
+    format: Literal["forma-project"] = PROJECT_MANIFEST_FORMAT
+    version: Literal[1] = PROJECT_MANIFEST_VERSION
     project_id: str = Field(min_length=1)
     workspace_id: str | None = None
     title: str = ""
@@ -218,6 +223,13 @@ class ProjectManifest(BaseModel):
     project_ir: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[ProjectArtifactReference] = Field(default_factory=list)
 
+    @field_validator("version", mode="before")
+    @classmethod
+    def supported_version(cls, value):
+        if type(value) is not int or value != PROJECT_MANIFEST_VERSION:
+            raise ValueError("Unsupported project manifest version.")
+        return value
+
     @classmethod
     def from_document(cls, document: Mapping[str, Any]) -> "ProjectManifest":
         """Accept both the canonical wrapper and legacy raw Hardware Intermediate Representation JSON."""
@@ -225,22 +237,34 @@ class ProjectManifest(BaseModel):
         nested = raw.get("project_ir")
         if not isinstance(nested, Mapping):
             nested = raw.get("hardware_ir")
+        wrapped = isinstance(nested, Mapping)
+        if raw.get("format") is not None and raw["format"] != PROJECT_MANIFEST_FORMAT:
+            raise ValueError("Unsupported project manifest format.")
+        if wrapped and "version" in raw and (type(raw["version"]) is not int or raw["version"] != PROJECT_MANIFEST_VERSION):
+            raise ValueError("Unsupported project manifest version; migrate with a compatible reader.")
         project_ir = dict(nested) if isinstance(nested, Mapping) else raw
         metadata = project_ir.get("assembly_metadata")
         metadata = metadata if isinstance(metadata, Mapping) else {}
         project_id = raw.get("project_id") or metadata.get("project_id") or str(uuid4())
         overview = project_ir.get("overview")
         overview = overview if isinstance(overview, Mapping) else {}
-        title = raw.get("title") or overview.get("title") or "Untitled Forma Project"
+        title = raw["title"] if wrapped and "title" in raw else raw.get("title") or overview.get("title") or "Untitled Forma Project"
         prompt = raw.get("prompt") or metadata.get("project_prompt") or ""
         artifact_values = []
+        if wrapped and (not isinstance(raw.get("artifacts", []), list) or any(not isinstance(item, Mapping) for item in raw.get("artifacts", []))):
+            raise ValueError("Project artifact declarations must be a list of objects.")
         for item in raw.get("artifacts") or []:
             if not isinstance(item, Mapping):
                 continue
             artifact = dict(item)
             artifact.setdefault("path", artifact.get("uri") or artifact.get("name") or "")
             artifact_values.append(artifact)
+        # Wrapper extensions (including review receipts) must survive reopening.
+        # Legacy raw IR fields remain inside project_ir instead of being copied
+        # into a second competing top-level state.
+        extensions = {key: value for key, value in raw.items() if key not in cls.model_fields and key != "hardware_ir"} if wrapped else {}
         return cls(
+            **extensions,
             format=str(raw.get("format") or PROJECT_MANIFEST_FORMAT),
             version=int(raw.get("version") or PROJECT_MANIFEST_VERSION),
             project_id=str(project_id),
@@ -334,15 +358,36 @@ def load_project_manifest(path: str | Path) -> ProjectManifest:
 
 
 def write_project_manifest(path: str | Path, manifest: ProjectManifest) -> None:
+    """Atomically publish this payload, retrying transient Windows sharing locks.
+
+    A competing writer's bytes never count as this write succeeding. If the
+    bounded replacement attempts fail, leave the prior complete file intact.
+    """
     project_path = Path(path)
     safe_payload = redact_project_secrets(manifest.model_dump(mode="json"))
     project_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = project_path.with_suffix(f"{project_path.suffix}.tmp")
-    temporary_path.write_text(
-        json.dumps(safe_payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    temporary_path.replace(project_path)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=project_path.parent,
+                                         prefix=f".{project_path.name}.", suffix=".tmp", delete=False) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(json.dumps(safe_payload, indent=2, sort_keys=True, allow_nan=False) + "\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        for attempt in range(8):
+            try:
+                temporary_path.replace(project_path)
+                break
+            except PermissionError:
+                # Windows can briefly deny replacement while another process
+                # reads or replaces the destination. Keep the same synced temp
+                # file and retry; never fall back to truncating the manifest.
+                if attempt == 7:
+                    raise
+                time.sleep(min(0.01 * (2 ** attempt), 0.1))
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 __all__ = [

@@ -377,8 +377,9 @@ class A2ATransportAuthTests(unittest.IsolatedAsyncioTestCase):
             context,
         )
 
-    async def test_websocket_mcp_rejects_non_admin_user_context(self) -> None:
-        context = user_context("socket-user")
+    async def test_websocket_mcp_rejects_unsupported_identity_provider(self) -> None:
+        context = UserContext(provider="unrecognized", subject="socket-user", owner_user_id="socket-user",
+                              is_authenticated=True, is_admin=False)
         websocket = SimpleNamespace(
             accept=AsyncMock(),
             close=AsyncMock(),

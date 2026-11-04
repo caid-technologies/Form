@@ -102,7 +102,7 @@ class ArchitectureContinuityTests(TestCase):
         user = UserContext(provider="test", subject="owner", owner_user_id="owner", is_authenticated=True, is_admin=False)
         with patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=previous), \
              patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
-             patch("apps.api.opencode_mcp.ensure_native_cad_model"), \
+             patch("forma_core.workspaces.projects.cad_generation.ensure_native_cad_model"), \
              patch("apps.api.opencode_mcp._persist_mcp_compile") as persist:
             result = _compile(HardwareIntermediateRepresentation(), str(uuid4()), user)
         self.assertEqual(previous.state.system_architecture, persist.call_args.args[0].system_architecture)

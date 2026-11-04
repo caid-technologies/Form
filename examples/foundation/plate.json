@@ -1,0 +1,29 @@
+{
+  "format": "forma-project",
+  "version": 1,
+  "project_id": "83549e50-31dd-42c6-bae2-bb25ac7e279a",
+  "title": "Inspectable plate",
+  "visibility": "private",
+  "project_ir": {
+    "components": [],
+    "nets": [],
+    "mechanical": {
+      "enclosure_type": "Standalone plate",
+      "mounting_guidance": "Unspecified; mounting requirements have not been supplied.",
+      "manufacturability_rating": "Unassessed",
+      "cad_operations": [
+        {
+          "shape": "box",
+          "operation": "add",
+          "size": {"x_mm": 40, "y_mm": 20, "z_mm": 4}
+        },
+        {
+          "shape": "cylinder",
+          "operation": "cut",
+          "size": {"x_mm": 6, "y_mm": 6, "z_mm": 6}
+        }
+      ]
+    }
+  },
+  "artifacts": []
+}

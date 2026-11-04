@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import Any
 
 
-SUPPORTED_OPENCAD_VERSION = "0.2.4"
-OPENCAD_KINEMATICS_COMMIT = "1c417752eb42d29b951784e80f65ac79c3fb6e0e"
-DEFAULT_OPENCAD_REQUIREMENT = f"opencad[occt] @ git+https://github.com/caid-technologies/OpenCAD.git@{OPENCAD_KINEMATICS_COMMIT}#subdirectory=packages/opencad"
+SUPPORTED_OPENCAD_VERSION = "0.2.5"
+OPENCAD_KINEMATICS_COMMIT = "89c85423b831f2a5b66d21d2087b7eb45d113585"
+DEFAULT_OPENCAD_REQUIREMENT = f"opencad[occt] @ git+https://github.com/caid-technologies/Open-CAD.git@{OPENCAD_KINEMATICS_COMMIT}#subdirectory=packages/opencad"
 OPENCAD_REQUIREMENT_ENV = "FORMA_OPENCAD_REQUIREMENT"
 SUPPORTED_OUTPUT_SUFFIXES = {".step", ".stp", ".stl"}
 
@@ -388,7 +388,7 @@ def build_cad_file(
         if destination is not None and destination.exists() and not force:
             raise OpenCADError(f"Refusing to replace existing file without --force: {destination}")
 
-    runtime = ensure_opencad(requirement=requirement)
+    runtime = ensure_opencad(install=False, requirement=requirement)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if tree_path is not None:
         tree_path.parent.mkdir(parents=True, exist_ok=True)

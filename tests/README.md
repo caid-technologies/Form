@@ -7,6 +7,7 @@ The offline Python tests are grouped by the concern they exercise:
 - `integrations/` — external sources, artifact services, and user integrations.
 - `jobs/` — background jobs, streams, progress, and prior-job context.
 - `observability/` — diagnostics, safe error visibility, and logging.
+- `opencode/` — authenticated agent authoring, sessions, tools, and continuity.
 - `persistence/` — database selection, schema compatibility, and repositories.
 - `projects/` — project models, iteration, output, validation, and media prompts.
 - `providers/` — LLM and image provider selection, runtime, and repair behavior.

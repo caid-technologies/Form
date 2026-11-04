@@ -581,7 +581,7 @@ async def require_admin_user_context(request: Request) -> UserContext:
 
 
 async def require_mcp_user_context(request: Request) -> UserContext:
-    """Authorize MCP with a dedicated API key or the normal admin identity."""
+    """Authorize MCP with a dedicated API key or a normal authenticated identity."""
     service_context = _service_context_for_token(_request_bearer_token(request), a2a=False)
     if service_context is not None:
         return service_context

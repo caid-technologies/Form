@@ -32,18 +32,18 @@ class CadSkillTests(unittest.TestCase):
         module = load_cad_module()
         with patch.object(module, "_inspect_runtime") as inspect_runtime, patch.object(module, "_install") as install:
             inspect_runtime.return_value = (
-                module.OpenCADRuntime("0.2.4", module.DEFAULT_OPENCAD_REQUIREMENT),
+                module.OpenCADRuntime("0.2.5", module.DEFAULT_OPENCAD_REQUIREMENT),
                 "",
             )
 
             runtime = module.ensure_opencad()
 
-        self.assertEqual("0.2.4", runtime.version)
+        self.assertEqual("0.2.5", runtime.version)
         install.assert_not_called()
 
     def test_missing_runtime_is_installed_and_verified(self) -> None:
         module = load_cad_module()
-        runtime = module.OpenCADRuntime("0.2.4", module.DEFAULT_OPENCAD_REQUIREMENT)
+        runtime = module.OpenCADRuntime("0.2.5", module.DEFAULT_OPENCAD_REQUIREMENT)
         with patch.object(module, "_inspect_runtime", side_effect=[(None, "package is missing"), (runtime, "")]) as inspect_runtime, patch.object(module, "_install") as install, patch.object(module, "_clear_opencad_modules"):
             result = module.ensure_opencad()
 
@@ -116,7 +116,7 @@ class CadSkillTests(unittest.TestCase):
             self.assertEqual(0, build.returncode, build.stderr)
             summary = json.loads(build.stdout)
             self.assertTrue(summary["valid"])
-            self.assertEqual("0.2.4", summary["opencad_version"])
+            self.assertEqual("0.2.5", summary["opencad_version"])
             self.assertTrue(output.is_file())
             self.assertTrue(tree.is_file())
 

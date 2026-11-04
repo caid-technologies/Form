@@ -476,3 +476,48 @@ def _http_error(code: int, error_code: str, message: str) -> HTTPException:
         status_code=code,
         detail={"code": error_code, "message": message, "correlation_id": new_error_correlation_id()},
     )
+
+
+@router.get("/projects/{project_id}/component-assets/{asset_id}/{version}/{representation}")
+def download_component_asset(project_id: UUID, asset_id: str, version: str, representation: str,
+                             user: UserContext = Depends(require_opencode_authoring_access)) -> Response:
+    from apps.api.component_assets import project_library
+    from forma_core.assets.service import AssetRecoveryRequired
+    try:
+        library = project_library(str(project_id), _owner(user))
+        asset = library.inspect(asset_id, version)
+        content = library.content(asset_id, version, representation)
+        descriptor = next(r for r in asset.registration.representations if r.name == representation)
+    except PermissionError:
+        raise _http_error(404, "component_asset_not_found", "The component asset is unavailable.")
+    except AssetRecoveryRequired:
+        raise _http_error(409, "component_asset_recovery_required", "Re-register original bytes or explicitly source a replacement.")
+    except ValueError:
+        raise _http_error(404, "component_representation_not_found", "The representation is unavailable.")
+    return Response(content, media_type=descriptor.media_type,
+                    headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+                             "Content-Disposition": 'attachment; filename="component-asset.bin"'})
+
+
+@router.get("/component-assets/{asset_id}/{version}/{representation}")
+def download_connector_component_asset(asset_id: str, version: str, representation: str,
+        capability: str | None = Header(default=None, alias="X-Forma-OpenCode-Capability"),
+        authorization: str | None = Header(default=None)) -> Response:
+    from apps.api.component_assets import project_library
+    from forma_core.assets.service import AssetRecoveryRequired
+    cap = _connector_capability(capability or _bearer(authorization), scope="mcp")
+    _scoped_connector_session(cap)
+    try:
+        library = project_library(cap.project_id, cap.owner_user_id)
+        asset = library.inspect(asset_id, version)
+        data = library.content(asset_id, version, representation)
+        rep = next(r for r in asset.registration.representations if r.name == representation)
+    except PermissionError:
+        raise _http_error(404, "component_asset_not_found", "The component asset is unavailable.")
+    except AssetRecoveryRequired:
+        raise _http_error(409, "component_asset_recovery_required", "Re-register original bytes or explicitly source a replacement.")
+    except ValueError:
+        raise _http_error(404, "component_representation_not_found", "The representation is unavailable.")
+    return Response(data, media_type=rep.media_type,
+                    headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+                             "Content-Disposition": 'attachment; filename="component-asset.bin"'})

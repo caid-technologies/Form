@@ -38,7 +38,7 @@ from forma_core.workspaces.projects import (
 )
 from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.cad_generation import (
-    cad_project_artifact,
+    cad_project_artifacts,
 )
 from forma_core.workspaces.projects.output import attach_hardware_reference_image, attach_product_image
 from forma_core.user_integrations import (
@@ -264,9 +264,10 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIntermediat
             uri=f"{revision_base}/assembly",
             media_type="application/json",
         ))
-    cad_artifact = cad_project_artifact(state, str(design_brief.project_id))
-    if cad_artifact is not None:
-        artifacts.append(cad_artifact)
+    artifacts.extend(cad_project_artifacts(state, str(design_brief.project_id)))
+
+    from forma_core.assets.project import component_pin_artifacts
+    artifacts.extend(component_pin_artifacts(state))
 
     generation_run = (state.assembly_metadata or {}).get("generation_run") or {}
     generation_records = generation_run.get("records") if isinstance(generation_run, dict) else {}
