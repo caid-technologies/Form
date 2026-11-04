@@ -49,7 +49,8 @@ class HuggingFaceArtifactTests(unittest.TestCase):
             root = pathlib.Path(temp_dir)
             artifact_path = root / ".logs" / "benchmarks" / "report.json"
             artifact_path.parent.mkdir(parents=True)
-            artifact_path.write_text('{"ok": true}\n', encoding="utf-8")
+            content = b'{"ok": true}\n'
+            artifact_path.write_bytes(content)
 
             artifacts = build_artifacts(
                 [artifact_path],
@@ -58,10 +59,10 @@ class HuggingFaceArtifactTests(unittest.TestCase):
                 root_dir=root,
             )
 
-            expected_digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+            expected_digest = hashlib.sha256(content).hexdigest()
             self.assertEqual(1, len(artifacts))
             self.assertEqual(expected_digest, artifacts[0].sha256)
-            self.assertEqual(13, artifacts[0].size_bytes)
+            self.assertEqual(len(content), artifacts[0].size_bytes)
             self.assertEqual("forma/benchmarks/model/.logs/benchmarks/report.json", artifacts[0].path_in_repo)
 
     def test_upload_artifacts_uses_hf_api_without_network(self) -> None:
@@ -76,7 +77,7 @@ class HuggingFaceArtifactTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as temp_dir:
                 root = pathlib.Path(temp_dir)
                 artifact_path = root / "metrics.json"
-                artifact_path.write_text('{"score": 1}\n', encoding="utf-8")
+                artifact_path.write_bytes(b'{"score": 1}\n')
                 artifact = build_artifacts(
                     [artifact_path],
                     artifact_type="evals",

@@ -237,7 +237,9 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertEqual("gpt-5.5", model["value"])
             self.assertEqual("saved", model["source"])
             self.assertNotIn("sk-testsecret123456", str(payload))
-            self.assertEqual(stat.S_IMODE(store.path.stat().st_mode), 0o600)
+            # Windows mode bits do not describe the file's access-control list.
+            if os.name == "posix":
+                self.assertEqual(stat.S_IMODE(store.path.stat().st_mode), 0o600)
 
     def test_apply_overlays_saved_values_and_restores_environment_fallback(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -1255,7 +1257,9 @@ class UserIntegrationTests(unittest.TestCase):
             loaded = store.load().integration_by_id("openai")
             self.assertIsNotNone(loaded)
             self.assertEqual("sk-must-not-appear", loaded.field_value("api_key"))
-            self.assertEqual(stat.S_IMODE(store.path.stat().st_mode), 0o600)
+            # Keep encryption checks universal; POSIX permissions are separate.
+            if os.name == "posix":
+                self.assertEqual(stat.S_IMODE(store.path.stat().st_mode), 0o600)
 
     def test_default_store_uses_supabase_workspace_when_supabase_is_configured(self) -> None:
         with isolated_integration_env():
