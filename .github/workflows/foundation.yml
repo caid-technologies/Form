@@ -32,7 +32,7 @@ jobs:
       - name: Install supported native environment and built wheel
         shell: bash
         run: |
-          python -m pip install -c scripts/quality/foundation-constraints.txt -r apps/api/requirements.txt pytest pytest-subtests dist/*.whl "opencad[occt] @ git+https://github.com/caid-technologies/Open-CAD.git@d2fd81c2309eb400224203be1b9c91298f09aa64#subdirectory=packages/opencad"
+          python -m pip install -c scripts/quality/foundation-constraints.txt -r apps/api/requirements.txt pytest pytest-subtests dist/*.whl "opencad[occt] @ git+https://github.com/caid-technologies/Open-CAD.git@89c85423b831f2a5b66d21d2087b7eb45d113585#subdirectory=packages/opencad"
           python -m pip check
       - name: Exercise installed wheel outside the source checkout
         run: python scripts/quality/check-foundation-wheel.py --fixture examples/foundation/plate.json --output "${{ runner.temp }}/foundation-evidence"

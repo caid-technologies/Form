@@ -7,7 +7,7 @@ The Forma hardware skill manages OpenCAD for CAD-capable workflows. The base
 
 - OpenCAD: `0.2.5`
 - Required extra: `occt`
-- Managed source: Open-CAD foundation commit `d2fd81c2309eb400224203be1b9c91298f09aa64`
+- Managed source: Open-CAD foundation commit `89c85423b831f2a5b66d21d2087b7eb45d113585`
 - Python: `3.11+` for the Forma skill environment
 
 The OCCT extra is required for real STEP and STL exchange files. The analytic

@@ -1,7 +1,7 @@
 # Foundation verification — 2026-11-04
 
 Supported source pair: Form **0.3.7** and Open-CAD **0.2.5**, pinned to
-`d2fd81c2309eb400224203be1b9c91298f09aa64` in the native adapter and CI.
+`89c85423b831f2a5b66d21d2087b7eb45d113585` in the native adapter and CI.
 The CAD change is [Open-CAD PR #129](https://github.com/caid-technologies/Open-CAD/pull/129).
 This release implements inspectable artifacts, deterministic boundaries, human
 authority and open interfaces as the normal hardware workflow. It adds no new
