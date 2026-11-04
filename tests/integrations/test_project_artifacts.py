@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import errno
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -29,8 +30,11 @@ class ProjectArtifactStorageTests(unittest.TestCase):
                 storage.put("project", sha256, content, "application/octet-stream")
                 return storage.get("project", sha256, "application/octet-stream").content
 
-            with ThreadPoolExecutor(max_workers=8) as writers:
-                self.assertEqual([content] * 32, list(writers.map(write, range(32))))
+            # New and identical objects use create-once publication, never a
+            # replace that can interrupt another writer's concurrent read.
+            with patch.object(Path, "replace", side_effect=AssertionError("Immutable winner must not be replaced")):
+                with ThreadPoolExecutor(max_workers=8) as writers:
+                    self.assertEqual([content] * 32, list(writers.map(write, range(32))))
             self.assertEqual(1, len([p for p in Path(directory).rglob("*") if p.is_file()]))
 
     def test_windows_denial_after_competing_publish_is_successful(self) -> None:
@@ -46,11 +50,113 @@ class ProjectArtifactStorageTests(unittest.TestCase):
                 destination.write_bytes(content)
                 raise PermissionError("target opened by another reader")
 
-            with patch.object(Path, "replace", competing_publish), patch(
+            with patch("forma_core.persistence.project_artifacts.os.link", competing_publish), patch.object(
+                Path, "replace", side_effect=AssertionError("Verified winner must not be replaced")
+            ), patch(
                 "forma_core.persistence.project_artifacts.time.sleep"
             ):
                 storage.put("project", sha256, content, "application/octet-stream")
             self.assertEqual(content, target.read_bytes())
+            self.assertEqual([target], [p for p in Path(directory).rglob("*") if p.is_file()])
+
+    def test_local_read_retries_transient_sharing_denial(self) -> None:
+        content = b"verified stored bytes"
+        digest = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            storage = self.local_storage(directory)
+            storage.put("project", digest, content, "application/octet-stream")
+            target = Path(directory) / project_artifact_storage_key("project", digest)
+            read_bytes = Path.read_bytes
+            reads = []
+
+            def temporarily_busy(path: Path) -> bytes:
+                if path == target:
+                    reads.append(path)
+                    if len(reads) <= 3:
+                        raise PermissionError("simulated Windows sharing denial")
+                return read_bytes(path)
+
+            with patch.object(Path, "read_bytes", temporarily_busy), patch(
+                "forma_core.persistence.project_artifacts.time.sleep"
+            ) as sleep:
+                result = storage.get("project", digest, "application/octet-stream")
+            self.assertEqual(content, result.content)
+            self.assertEqual(4, len(reads))
+            self.assertEqual(3, sleep.call_count)
+            self.assertEqual(content, target.read_bytes())
+
+    def test_local_read_permanent_denial_is_unavailable_not_corrupt_or_missing(self) -> None:
+        content = b"stored bytes remain intact"
+        digest = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            storage = self.local_storage(directory)
+            storage.put("project", digest, content, "application/octet-stream")
+            target = Path(directory) / project_artifact_storage_key("project", digest)
+            with patch.object(Path, "read_bytes", side_effect=PermissionError("access denied")) as read, patch(
+                "forma_core.persistence.project_artifacts.time.sleep"
+            ) as sleep:
+                with self.assertRaisesRegex(ProjectArtifactStorageError, "busy or access is denied") as failure:
+                    storage.get("project", digest, "application/octet-stream")
+            self.assertIsInstance(failure.exception.__cause__, PermissionError)
+            self.assertEqual(8, read.call_count)
+            self.assertEqual(7, sleep.call_count)
+            self.assertEqual(content, target.read_bytes())
+            self.assertEqual([target], [p for p in Path(directory).rglob("*") if p.is_file()])
+
+    def test_unsupported_hardlinks_fall_back_atomically_and_allow_corrupt_repair(self) -> None:
+        content = b"content on a filesystem without hardlinks"
+        digest = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            storage = self.local_storage(directory)
+            with patch("forma_core.persistence.project_artifacts.os.link",
+                       side_effect=OSError(getattr(errno, "EOPNOTSUPP", errno.ENOSYS), "hardlinks unsupported")):
+                storage.put("project", digest, content, "application/octet-stream")
+                target = Path(directory) / project_artifact_storage_key("project", digest)
+                target.write_bytes(b"corrupt")
+                with self.assertRaisesRegex(ProjectArtifactStorageError, "integrity check"):
+                    storage.get("project", digest, "application/octet-stream")
+                storage.put("project", digest, content, "application/octet-stream")
+            self.assertEqual(content, storage.get("project", digest, "application/octet-stream").content)
+            self.assertEqual([target], [p for p in Path(directory).rglob("*") if p.is_file()])
+
+    def test_hardlink_access_denial_never_falls_back_to_replacement(self) -> None:
+        content = b"unpublished bytes"
+        digest = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            storage = self.local_storage(directory)
+            with patch("forma_core.persistence.project_artifacts.os.link", side_effect=PermissionError("access denied")) as link, patch.object(
+                Path, "replace", side_effect=AssertionError("Access denial is not unsupported hardlinks")
+            ), patch("forma_core.persistence.project_artifacts.time.sleep") as sleep:
+                with self.assertRaisesRegex(ProjectArtifactStorageError, "access is denied"):
+                    storage.put("project", digest, content, "application/octet-stream")
+            self.assertEqual(8, link.call_count)
+            self.assertEqual(7, sleep.call_count)
+            self.assertEqual([], [p for p in Path(directory).rglob("*") if p.is_file()])
+
+    def test_published_hardlink_cleanup_retries_reader_sharing_denial(self) -> None:
+        content = b"new immutable object"
+        digest = hashlib.sha256(content).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            storage = self.local_storage(directory)
+            target = Path(directory) / project_artifact_storage_key("project", digest)
+            unlink = Path.unlink
+            cleanups = []
+
+            def reader_holds_file(path: Path, missing_ok: bool = False) -> None:
+                if path != target:
+                    cleanups.append(path)
+                    self.assertEqual(content, target.read_bytes())
+                    if len(cleanups) <= 3:
+                        raise PermissionError("reader holds published hardlink")
+                unlink(path, missing_ok=missing_ok)
+
+            with patch.object(Path, "unlink", reader_holds_file), patch(
+                "forma_core.persistence.project_artifacts.time.sleep"
+            ) as sleep:
+                storage.put("project", digest, content, "application/octet-stream")
+            self.assertEqual(4, len(cleanups))
+            self.assertEqual(3, sleep.call_count)
+            self.assertEqual(content, storage.get("project", digest, "application/octet-stream").content)
             self.assertEqual([target], [p for p in Path(directory).rglob("*") if p.is_file()])
 
     def test_busy_corrupt_target_fails_without_success_or_temporary_files(self) -> None:
